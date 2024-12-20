@@ -1,3 +1,5 @@
 *.lst
 *.prg
 *.geany
+tmp
+aux

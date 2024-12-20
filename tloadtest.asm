@@ -1,14 +1,11 @@
 	PROCESSOR 6502
 
-	SEG.U zero
-	ORG $d0
-	SEG.U bss
-	ORG _textend
-
 	SEG text
 	ORG $1001
 
-	INCLUDE "264defs.asm"
+CINT	EQU $ff81
+PRIMM	EQU $ff4f
+
 	INCLUDE "basicstub.asm"
 	jmp rstart
 	INCLUDE "tload.asm"
@@ -19,11 +16,27 @@ rstart	jsr CINT
 	DC $0e, $08, $0d
 	DC "hELLO!",$0d
 	DC 0 
-.rloop	jmp .rloop
-
+	lda #$c0
+	sta $e6
+	lda #0
+	sta $e7	
+	lda #.fname-.fnam
+	ldx #<.fnam
+	ldy #>.fnam
+	sei
+	sta $ff3f
+	jsr tload_start
 	
-_textend
-	SEG.U bss
-_bssend
-	SEG.U zero
-_zeroend
+	lda #3
+.rloop	cmp $d0
+	bne .rloop
+	
+	sei
+	jsr tload_stop
+	sta $ff3e
+	jsr $e8c8
+		
+	jmp $ff52
+	
+.fnam	DC  "PAYLOAD"
+.fname

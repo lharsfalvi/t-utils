@@ -13,10 +13,14 @@ if ! dasm | head -1 | grep -q '^DASM 2\.'; then
   exit 1
 fi
 
-FILES="tloadtest"
-DAOPTS="-f1 -v0 -DREL_Y=$YEAR"
+YEAR=$(date +"%Y")
+echo $YEAR
+TAG=$(git describe --exact-match --tags 2> /dev/null || git rev-parse --short HEAD)
+echo $TAG
 
-YEAR=`date +"%Y"`
+FILES="tloadtest"
+#FILES="tsave"
+DAOPTS="-f1 -v0 -DREL_Y=$YEAR -DREL_T=\"$TAG\""
 
 for FILE in $FILES; do
   if ! dasm $FILE.asm -l$FILE.lst -o$FILE.prg -Dmod_$FILE $DAOPTS
