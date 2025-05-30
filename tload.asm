@@ -13,22 +13,21 @@ tbuf	EQU $0333
 tstat_e	EQU $d0			; load state (external)
 tstat	EQU $d1			; load state (internal)
 tlpol	EQU $d2			; polarity
-syncnt	EQU $d3			; sync counter
-tla1	EQU $d4			; accu 1 (live)
-tla2	EQU $d5			; accu 2 (live's buffer)
-tla3	EQU $d6			; accu 3 (GCR decoded)
-tcnt	EQU $d7			; temporary counter
-gcrpol	EQU $d8			; gcr nybble polarity
-del1	EQU $d9			; sync delay, rising edge
-del2	EQU $da			; sync delay, falling edge
-
-xstor	EQU $e4			; x store
-ystor	EQU $e5			; y store
+sstat	EQU $d3			; sync status
+sacc	EQU $d4			; serial accu (live)
+pacc	EQU $d5			; process accu
+pac2	EQU $d6			; process accu 2
+dacc	EQU $d7			; decode accu
+tcnt	EQU $d8			; temporary and raw bit counter
+bitstor	EQU $d9			; various 1-bit storage
+etmp	EQU $e0			; temp var in sync
+delay1	EQU $e4			; delay line jump ptr 1
+delay2	EQU $e5			; delay line jump ptr 2
 tbase	EQU $e6			; timebase
 tsym	EQU $e7			; timebase leading edge (a)symmetry
 
 ; tstat
-;00	waiting for datasette key to be pressed
+;00	waiting for datasette play button to be pressed
 ;01	searching for a lead
 ;02	found lead, counting
 ;03	found lead, searching for first 0 bit
@@ -73,23 +72,20 @@ tload_start
 	sta tstat
 	sta tstat_e
 	sta tlpol
-	sta syncnt
+	sta sstat
+	sta bitstor
 	sta ST
-	ldx #tla1
-	stx .acadr
-	inx
-	stx .acadrb
 	lda #.tl2-.sjmp+2
 	sta .sjmp+1
 	lda #$08
 	sta $ff0a
 	sta $ff09
-	sta tla1
-	jsr .setstatvect
-	
-	lda #$0b
+	lda #1
+	sta sacc
+
+	lda #$3b
 	sta $ff06
-	
+
 	cli
 	rts
 
@@ -113,145 +109,307 @@ tload_stop
 ; where known delay is IRQ code runtime until sampling, and
 ; random delay is that of badlines, IRQ acceptance, and single/double
 ; clock (where applicable).
-; That is, nominally
-; t(IRQ) = 192/2 - 13/2 - 13/2/2 - 7/2 - 43/2 =~ 61
-; that is, the "magic offset" is -35
-; and predictable random offset is within -28..+28.
-	
+
 tload_irq
 				; 0-6 + 0-43
 				; 7 IRQ ack + jmp
 	pha			; 3
-	lda $01			; 3 --> t=+13, should happen at T/2
-	cmp #$c8		; 2 CST RD in C
-	lda #$08		; 2
+	lda #$c8		; 2
+	cmp $01			; 3 --> t=+15, should happen at T/2
 	sta $ff09		; 4 ACK IRQ
-.acadr	EQU *+1
-	rol tla1		; 5
+	rol sacc		; 5
 .sjmp	bcs .tl2		; 2
 	pla			; 4
-	rti			; 6
+	rti			; 6	- worst-case 42
 
-				; 38
-.acadrb EQU *+1	
-.tl2	lda #tla2		; 2
-	sta .acadr		; 4
-	stx xstor		; 3
-	sty ystor		; 3
-				; 41 
+.tl2	lda sacc
+        sta pacc
+        lda #1
+	sta sacc
+        cli			; At this point we permit sub IRQ's
+				; to happen, to let subsequent
+				; data bits to be collected while
+				; processing the previously collected
+				; raw bit octet.
+        txa
+        pha
+        tya
+	pha
+        dec $ff19
 
+	lda pacc		; level --> level change conversion
+	lsr bitstor
+	ror
+	rol bitstor
+	eor pacc
+	sta pacc
 
+.tls	bit bitstor		; are we pre- or within a gcr field
+	bpl .tl3		; pre, skip gcr decoup and decode
 
-	dec syncnt
-	bpl .tl3		; skip sync
-
-	ldy #0
-;	lda #delay
-	sta $ff04
-
-.tl14	lda #$08
-	bit $ff09
-;	bne nullabit
-
-	lda $01
-	eor tlpol
-	and #$10
-	beq .tl14		; no flip
-	sty $ff05		; start T3
-	lda #$40
-	sta $ff09
-	
+	lda pac2		; gcr raw bits decoupling and decoding
 	sec
-	rol tla1
-	lda #$10
-	eor tlpol
-	sta tlpol
-	lda tbase
-	sta $ff00		; set T1
 
-.tl15	bit $ff09
-	bvc .tl15
-	sty $ff01		; start T1
-	lda #$08
+.tlgl	rol pacc
+	beq .tlem
+	rol
+	bcc .tlgl
+
+; do gcr decoding et. al. (and return)
+
+	lda #%00001000
+	clc
+	bcc loop
+
+.tlem	sta pac2
+
+*/
+
+.tl3	ldy tstat		; prepare to call state handler
+	lda .sttabl,y
+	sta .tjmp+1
+	lda .sttabh,y
+	sta .tjmp+2
+
+.tjmp	jsr .s_pressplay	; call state handler
+	lda tstat
+	bpl .tsyn
+	and #$7f
+	sta tstat
+	bpl .tls		; special case - redo state machine
+
+.tsyn	lda sstat		; now do sync if it's time to do a sync
+        beq .sync
+        dec sstat
+
+.irqe   inc $ff19
+        pla			; time to finish and return
+	tay
+	pla
+	tax
+        pla
+        rti
+
+.sync	sei			; For this deal we're back to single thread
+	lda #3			; we try to find sync in max 4 bit times
+	sta etmp		; plus exchange
+
+	lda #<.sample
+	sta $fffe
+	lda #>.sample
+	sta $ffff
+
+	lda $ff13
+	and #$fd
+	sta .soff1
+	sta .soff2
+	ora #$02
+	sta .son
+
+.soff1	=*+1
+.sloop3 ldy #0
+	sty $ff13
+	lda #$c8
+	cmp $01
+	sbc #$c7
+	tay
+	lda .branch,y
+	sta .foo
+	lda delay1,y
+	sta .tim2
+
+	lda #$c8
+	cli
+.son	=*+1
+	ldy #0
+
+.sloop	cmp $01			; 3
+.foo	bcs .sloop		; 3
+
+.edge	lda $ff1d		; 4
+	sei			; 2
+	sty $ff13		; 4
+
+	sec			; 2
+	sbc #$01		; 2
+	cmp #$c4		; 2
+	ror			; 2
+	ldy $ff1c		; 4
+	cpy #$ff		; 2
+	ror			; 2
+	and #%11000001		; 2		- 18
+
+.tim2	EQU *+1
+	bne *+3			; 3
+	beq .sloop3		; unsuitable place, quit
+	DS 22,$ea		; 22 NOP's, 2 cycles each
+ltbase	=*+1
+	lda #0			; 2
+	sta $ff00		; 4
+	lda #0			; 2
+	sta $ff01		; 4
+.soff2	=*+1
+	lda #0
+	sta $ff13
+	lda #$c8
 	sta $ff09
+	cmp $01
+	rol sacc
+	lda #1
+	sta sstat
+	bne .sampe2
 
-	lda #3
-	sta syncnt
+.sample sta $ff09
+	cmp $01
+	rol sacc
+	bmi .sampe
+	dec etmp
+	bmi .sampe
+	rti
 
+.sampe	pla
+	pla
+	pla
+.sampe2	lda #<tload_irq
+	sta $fffe
+	lda #>tload_irq
+	sta $ffff
+	jmp .irqe
+
+.branch DC.B $90, $B0		; bcc, bcs
+
+	SUBROUTINE
+calcdelay
+	lda tbase
+	sec
+	sbc tsym
+	lsr			; (T-A)/2
+	pha
+	jsr .calc
+	sta delay2
+	pla
+	clc
+	adc tsym		; +A
+	jsr .calc
+	sta delay1
+	rts
+
+.calc	cmp #74
+	bcs .c1
+	lda #74
+.c1	cmp #118
+	bcc .c2
+	lda #118
+.c2	clc
+	sbc #(74+48)
+	eor #$ff
+	lsr
+	rts
+
+
+/*
 .tl3	cli			; from this on we're async
 	lda gcrpol		; 2-phase (2 nybbles per byte)
 	eor #$80
 	sta gcrpol
-	
+
 	ldy tstat
 	cpy #$04		; no GCR decoding, yet unconditional
 	bcc .tjmp		; processing below S=$04
 	
-	ldy tla2		; GCR decode and merge the nybble
-	lda tla3
+	ldy pacc		; GCR decode and merge the nybble
+	lda gacc
 	asl
 	asl
 	asl
 	asl
 	ora .gcrtobin-9,y	; and merge it with the previous one
-	sta tla3
+	sta gacc
 	bit gcrpol
 	bmi .tl4		; skip processing until complete
-	
-.tjmp	jsr .s_pressplay
 
-	bit gcrpol		; no attempt to sync on low nybbles
-	bpl .tl5
+*/
 
-.tl4	bit tla1		; no further attempts to sync if
-	bmi .tl5		; there's only one bit left to load
-
-
-
-	
-.tl5	ldx xstor
-	ldy ystor
-	pla
-	rti
 
 ;00	waiting for datasette key to be pressed
 .s_pressplay
 	lda #$04
 	bit $fd10
 	bne .s_p1
-	inc tstat_e
-	lda #$c0
+	lda #$c0		; motor on
 	sta $01
-	jmp .incstat
+	inc tstat
+	inc tstat_e
 .s_p1	rts
 
 ;01	searching for a lead
 .s_seeklead
-	lda tla2
-	cmp #$1f
+	lda pacc
+	cmp #$ff
 	bne .s_sl1
-	lda #0
+	lda #$a0
 	sta tcnt
-	jmp .incstat
+	inc tstat
 .s_sl1	rts
-	
+
 ;02	found lead, counting
 .s_countlead
-	lda tla2
-	cmp #$1f
+	lda pacc
+	cmp #$ff
 	beq .s_c1
 	dec tstat
-	jmp .setstatvect
-.s_c1	inc tcnt
+	rts
+.s_c1	dec tcnt
 	bne .s_c2
-.s_c3	jmp .incstat
+	inc tstat
 .s_c2	rts
 
 ;03	found lead, searching for first 0 bit
 .s_findzero
+	lda pacc
+	cmp #$ff
+	beq .s_f1
+
+
+
+
+	lda tstat
+	clc
+	adc #$81
+	sta tstat
+.s_f1	rts
+
+
+
+
+
+inc tstat
+
+	
+
+
+/*
+	lda #$80
+.s_s2	asl
+	rol pacc
+	bcs .s_s2
+	
+	
+*/	
+	
+.s_s2	dey
+	asl
+	bcs .s_s2
+	bcc .bele-a-gcr-decode-loopba
+	
+	
+	
+	
+	
+/*	
 	ldy tcnt
 	bne .s_s1
-	lda tla2
+	lda pacc
 	cmp #$1f
 	beq .s_s0
 	
@@ -262,7 +420,7 @@ tload_irq
 	lsr
 	bcs .s_s2
 	sec
-	rol tla1		; 1 shift left
+	rol sacc		; 1 shift left
 	bne .s_s0
 .s_s2	dec tcnt		; from this on, 1 dummy
 	lsr
@@ -270,12 +428,12 @@ tload_irq
 	lsr
 	bcc .s_s4		; 2 shift right
 	bcs .s_s5		; 1 shift right
-.s_s3	lsr tla1
-.s_s4	lsr tla1
-.s_s5	lsr tla1
+.s_s3	lsr sacc
+.s_s4	lsr sacc
+.s_s5	lsr sacc
 .s_s0	rts
 
-.s_s1	lda tla2
+.s_s1	lda pacc
 	and #$1f
 	cmp #$1f		; at this point the dummy has to have
 	bne .s_s6		; some zero bits
@@ -299,9 +457,13 @@ tload_irq
 ;
 ; 01111 01111 0xxxx	1r	1d	v
 
+
+*/
+
+
 ;04	lead complete, phase corrected, read header, compare filename
 .s_rheader
-	lda tla3
+	lda gacc
 	ldy tcnt
 	sta .tbuf,y
 	bne .s_r1		; Y>0, not block type
@@ -337,7 +499,7 @@ tload_irq
 ;05	read data
 .s_rdata
 	ldy #0
-	lda tla3
+	lda gacc
 	sta (VARTAB),y
 	eor CHKSUM
 	sta CHKSUM
@@ -356,7 +518,7 @@ tload_irq
 	inc tstat_e		; we step the state
 	lda #$c8		; and stop the datassette
 	sta $01			; in any case
-	lda tla3
+	lda gacc
 	eor CHKSUM
 	beq .s_c0
 	lda #$ff
@@ -367,6 +529,7 @@ tload_irq
 .s_idle
 	rts
 
+/*
 .incstat
 	inc tstat
 .setstatvect
@@ -376,6 +539,8 @@ tload_irq
 	lda .sttabh,y
 	sta .tjmp+2
 	rts
+*/
+
 
 .sttabl
 	DC.B <.s_pressplay
