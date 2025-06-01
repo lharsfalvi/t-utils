@@ -54,6 +54,7 @@ tload_start
 	bcc .ti1
 	lda #$10
 .ti1	sta FNLEN
+	jsr calcdelay
 	sei
 	lda $ff0a
 	ldx $fffe
@@ -147,19 +148,19 @@ tload_irq
 .tls	bit bitstor		; are we pre- or within a gcr field
 	bpl .tl3		; pre, skip gcr decoup and decode
 
-	lda pac2		; gcr raw bits decoupling and decoding
+	lda pac2		; gcr raw bits decoupling
 	sec
 
 .tlgl	rol pacc
-	beq .tlem
+	beq .tlem		; pacc is out of valid bits, exit
 	rol
-	bcc .tlgl
+	bcc .tlgl		; loop until 5 valid bits in pac2
 
 ; do gcr decoding et. al. (and return)
 
 	lda #%00001000
 	clc
-	bcc loop
+	bcc .tlgl
 
 .tlem	sta pac2
 
@@ -171,12 +172,12 @@ tload_irq
 	lda .sttabh,y
 	sta .tjmp+2
 
-.tjmp	jsr .s_pressplay	; call state handler
-	lda tstat
+.tjmp	jsr .s_pressplay	; call current state handler
+	lda tstat		; handle redo state machine case
 	bpl .tsyn
 	and #$7f
 	sta tstat
-	bpl .tls		; special case - redo state machine
+	bpl .tls		; redo complete state machine stage
 
 .tsyn	lda sstat		; now do sync if it's time to do a sync
         beq .sync
