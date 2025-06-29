@@ -513,14 +513,14 @@ fnam	EQU *+4
 	bcc .l8
 	
 	jsr readgcrbyte
-	cmp $f5
-	php
+	pha
 
 	lda #$ee
 	sta $ff19
 	jsr $802e		; Basic reset
 	jsr $e8c8		; Motor off, screen on, irq on
-	plp
+	pla
+	cmp $f5
 	beq .bs3
 	jmp $a82b		; load error
 .bs3	jsr $8a9a		; Basic clr

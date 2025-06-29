@@ -12,12 +12,11 @@ tbuf	EQU $0333
 
 tstat_e	EQU $d0			; load state (external)
 tstat	EQU $d1			; load state (internal)
-tlpol	EQU $d2			; polarity
 sstat	EQU $d3			; sync status
 sacc	EQU $d4			; serial accu (live)
 pacc	EQU $d5			; process accu
 pac2	EQU $d6			; process accu 2
-dacc	EQU $d7			; decode accu
+gacc	EQU $d7			; GCR accu
 tcnt	EQU $d8			; temporary and raw bit counter
 bitstor	EQU $d9			; various 1-bit storage
 etmp	EQU $e0			; temp var in sync
@@ -30,17 +29,23 @@ tsym	EQU $e7			; timebase leading edge (a)symmetry
 ;00	waiting for datasette play button to be pressed
 ;01	searching for a lead
 ;02	found lead, counting
-;03	found lead, searching for first 0 bit
-;04	lead complete, phase corrected, read header, compare filename
-;05	read data
-;06	read and compare checksum
-;07	complete (idle)
+;03	found lead, searching for first 0 bit, correct phase when found
+;04	read lead's trailing $ee byte
+;05	read header, compare filename
+;06	read data
+;07	read and compare checksum
+;08	complete (idle)
+
+;b7	0 --> raw, 1--> GCR
 
 ; tstat_e
 ;00	waiting for play to be pressed
 ;01	searching
 ;02	found, loading
 ;03	ready (success in ST)
+
+; bitstor
+;b0	LSB of previously read raw octet
 
 ; name len in		$ab		FNLEN
 ; name ptr in		$af/$b0		FNADR
@@ -54,6 +59,16 @@ tload_start
 	bcc .ti1
 	lda #$10
 .ti1	sta FNLEN
+	lda #0
+	sta tstat
+	sta tstat_e
+	sta sstat
+	sta bitstor
+	sta ST
+	jsr .setstatvect
+	lda #1
+	sta sacc
+	sta gacc
 	jsr calcdelay
 	sei
 	lda $ff0a
@@ -70,23 +85,11 @@ tload_start
 	sta $ff00
 	lda #0
 	sta $ff01
-	sta tstat
-	sta tstat_e
-	sta tlpol
-	sta sstat
-	sta bitstor
-	sta ST
-	lda #.tl2-.sjmp+2
-	sta .sjmp+1
 	lda #$08
 	sta $ff0a
 	sta $ff09
-	lda #1
-	sta sacc
-
-	lda #$3b
+	lda #$1b
 	sta $ff06
-
 	cli
 	rts
 
@@ -145,10 +148,12 @@ tload_irq
 	eor pacc
 	sta pacc
 
-.tls	bit bitstor		; are we pre- or within a gcr field
-	bpl .tl3		; pre, skip gcr decoup and decode
+.tls	bit tstat		; are we pre- or within a gcr field
+	bmi .tlgd		; within, go gcr decoding
+	jsr .dostate		; call state handler with pacc in A
+	jmp .tsync
 
-	lda pac2		; gcr raw bits decoupling
+.tlgd	lda pac2		; gcr raw bits decoupling
 	sec
 
 .tlgl	rol pacc
@@ -156,35 +161,34 @@ tload_irq
 	rol
 	bcc .tlgl		; loop until 5 valid bits in pac2
 
-; do gcr decoding et. al. (and return)
+	tay			; do gcr decoding
+;	lda .gcrtobin,y		; check for GCR code error
+;	bmi .gcrerror
+	lda gacc
+	asl
+	asl
+	asl
+	asl
+	ora .gcrtobin,y
+	sta gacc
+	bcc .tnext
 
-	lda #%00001000
+	jsr .dostate		; call state handler with gacc in A
+	lda #1
+	sta gacc
+
+.tnext	lda #%00001000
 	clc
 	bcc .tlgl
 
-.tlem	sta pac2
+.tlem	sta pac2		; store collected but not processed bits
 
-*/
-
-.tl3	ldy tstat		; prepare to call state handler
-	lda .sttabl,y
-	sta .tjmp+1
-	lda .sttabh,y
-	sta .tjmp+2
-
-.tjmp	jsr .s_pressplay	; call current state handler
-	lda tstat		; handle redo state machine case
-	bpl .tsyn
-	and #$7f
-	sta tstat
-	bpl .tls		; redo complete state machine stage
-
-.tsyn	lda sstat		; now do sync if it's time to do a sync
+.tsync	lda sstat		; now do sync if it's time to do a sync
         beq .sync
         dec sstat
 
 .irqe   inc $ff19
-        pla			; time to finish and return
+        pla			; and now time to finish and return
 	tay
 	pla
 	tax
@@ -195,12 +199,12 @@ tload_irq
 	lda #3			; we try to find sync in max 4 bit times
 	sta etmp		; plus exchange
 
-	lda #<.sample
+	lda #<.sample		; set up local / sampling IRQ
 	sta $fffe
 	lda #>.sample
 	sta $ffff
 
-	lda $ff13
+	lda $ff13		; precalc $ff13 values
 	and #$fd
 	sta .soff1
 	sta .soff2
@@ -244,7 +248,7 @@ tload_irq
 	bne *+3			; 3
 	beq .sloop3		; unsuitable place, quit
 	DS 22,$ea		; 22 NOP's, 2 cycles each
-ltbase	=*+1
+.ltbase	=*+1
 	lda #0			; 2
 	sta $ff00		; 4
 	lda #0			; 2
@@ -279,9 +283,9 @@ ltbase	=*+1
 
 .branch DC.B $90, $B0		; bcc, bcs
 
-	SUBROUTINE
 calcdelay
 	lda tbase
+	sta .ltbase
 	sec
 	sbc tsym
 	lsr			; (T-A)/2
@@ -307,200 +311,105 @@ calcdelay
 	lsr
 	rts
 
-
-/*
-.tl3	cli			; from this on we're async
-	lda gcrpol		; 2-phase (2 nybbles per byte)
-	eor #$80
-	sta gcrpol
-
-	ldy tstat
-	cpy #$04		; no GCR decoding, yet unconditional
-	bcc .tjmp		; processing below S=$04
-	
-	ldy pacc		; GCR decode and merge the nybble
-	lda gacc
-	asl
-	asl
-	asl
-	asl
-	ora .gcrtobin-9,y	; and merge it with the previous one
-	sta gacc
-	bit gcrpol
-	bmi .tl4		; skip processing until complete
-
-*/
-
+; Call current state handler
+.dostate
+.tjmp	jmp .s_pressplay	; call current state handler
 
 ;00	waiting for datasette key to be pressed
 .s_pressplay
 	lda #$04
 	bit $fd10
-	bne .s_p1
+	bne .s_exit
 	lda #$c0		; motor on
 	sta $01
-	inc tstat
 	inc tstat_e
-.s_p1	rts
+	jmp .incstat
 
 ;01	searching for a lead
 .s_seeklead
-	lda pacc
-	cmp #$ff
-	bne .s_sl1
+	cmp #$ff		; pacc in A
+	bne .s_exit
 	lda #$a0
 	sta tcnt
-	inc tstat
-.s_sl1	rts
+	jmp .incstat
 
 ;02	found lead, counting
 .s_countlead
-	lda pacc
 	cmp #$ff
 	beq .s_c1
 	dec tstat
-	rts
+	jmp .setstatvect
 .s_c1	dec tcnt
-	bne .s_c2
-	inc tstat
-.s_c2	rts
+	bne .s_exit
+	jmp .incstat		; countlead exits with tcnt=0
 
 ;03	found lead, searching for first 0 bit
 .s_findzero
-	lda pacc
 	cmp #$ff
-	beq .s_f1
+	beq .s_exit
 
-
-
-
+	sec
+	rol
+	bcc .s_f3
+.s_f2	asl
+	bcs .s_f2
+.s_f3	sta pacc
+	pla			; throw return address away
+	pla
 	lda tstat
 	clc
 	adc #$81
-	sta tstat
-.s_f1	rts
+	sta tstat		; also raise GCR decode strobe
+	jsr .setstatvect
+	jmp .tnext		; manually redo state machine
 
-
-
-
-
-inc tstat
-
-	
-
-
-/*
-	lda #$80
-.s_s2	asl
-	rol pacc
-	bcs .s_s2
-	
-	
-*/	
-	
-.s_s2	dey
-	asl
-	bcs .s_s2
-	bcc .bele-a-gcr-decode-loopba
-	
-	
-	
-	
-	
-/*	
-	ldy tcnt
-	bne .s_s1
-	lda pacc
-	cmp #$1f
-	beq .s_s0
-	
-	ldy #2
-	sty tcnt		; 2 dummy
-	lsr
-	bcc .s_s0		; no shift
-	lsr
-	bcs .s_s2
-	sec
-	rol sacc		; 1 shift left
-	bne .s_s0
-.s_s2	dec tcnt		; from this on, 1 dummy
-	lsr
-	bcc .s_s3		; 3 shift right
-	lsr
-	bcc .s_s4		; 2 shift right
-	bcs .s_s5		; 1 shift right
-.s_s3	lsr sacc
-.s_s4	lsr sacc
-.s_s5	lsr sacc
-.s_s0	rts
-
-.s_s1	lda pacc
-	and #$1f
-	cmp #$1f		; at this point the dummy has to have
-	bne .s_s6		; some zero bits
-.s_s7	lda #1			; if not, start over
+;04	read lead's trailing $ee byte
+.s_r_ee
+	cmp #$ee		; gacc in A
+	bne .s_lnf		; $ee found?
+	jmp .incstat		; found, next state
+.s_lnf	lda #1			; ...not found, go back to seeklead
 	sta tstat
 	jmp .setstatvect
-.s_s6	dec tcnt
-	bne .s_s0
-	lda #0
-	sta gcrpol
-	sta CHKSUM
-	beq .s_c3		; no dummies left, cont
-	
-; 11110 11110 11110	0	2d	v
-; 1e	1e    1e
-; 11101 11101 1110x	1l	2d	v
-;
-; 11011 11011 110xx	3r	1d	v
-;
-; 10111 10111 10xxx	2r	1d	v
-;
-; 01111 01111 0xxxx	1r	1d	v
 
+.s_exit	rts
 
-*/
-
-
-;04	lead complete, phase corrected, read header, compare filename
+;05	read header, compare filename
 .s_rheader
-	lda gacc
 	ldy tcnt
 	sta .tbuf,y
 	bne .s_r1		; Y>0, not block type
 	cmp #1
 	beq .s_r0		; block type=1, we happy
-	bne .s_s7		; unless not so happy, start over
+	bne .s_lnf		; unless not so happy, start over
 .s_r1	cpy #17
 	bcs .s_r0		; Y>16, past filename
-	
+
 	dey			; compare filename byte
 	cpy FNLEN		; ...if within specified one's len
 	bcs .s_r000
 	eor (FNADR),y		; accumulate finding
 	ora CHKSUM
 	sta CHKSUM
-	
-.s_r000 iny	
+
+.s_r000 iny
 .s_r0	iny
 	sty tcnt
 	cpy #1+16+4		; block type, fn len, start/end ptr
-	bne .s_r00
+	bne .s_exit
 	lda CHKSUM
-	bne .s_s7		; FN didn't match, start over
-	inc tstat_e		; it did, see ya
+	bne .s_lnf		; FN didn't match, start over
+	inc tstat_e		; it did, Found!
 	ldy #3
 .s_r2	lda .tbuf+1+16,y	; copy start/end to $2d-$30
 	sta VARTAB,y
 	dey
 	bpl .s_r2
 	jmp .incstat
-.s_r00	rts
-	
-;05	read data
+
+;06	read data
 .s_rdata
 	ldy #0
-	lda gacc
 	sta (VARTAB),y
 	eor CHKSUM
 	sta CHKSUM
@@ -511,12 +420,12 @@ inc tstat
 	cmp VARTAB+2
 	lda VARTAB+1
 	sbc VARTAB+3
-	bcc .s_r00
+	bcc .s_exit
 	jmp .incstat
 
-;06	read and compare checksum
+;07	read and compare checksum
 .s_checksum
-	inc tstat_e		; we step the state
+	inc tstat_e		; Ready!
 	lda #$c8		; and stop the datassette
 	sta $01			; in any case
 	lda gacc
@@ -526,53 +435,54 @@ inc tstat
 .s_c0	sta ST			; 0 on success, $ff on load error
 	jmp .incstat
 
-;07	complete (idle)
+;08	complete (idle)
 .s_idle
 	rts
 
-/*
 .incstat
 	inc tstat
 .setstatvect
-	ldy tstat
+	lda tstat
+	and #$7f
+	tay
 	lda .sttabl,y
 	sta .tjmp+1
 	lda .sttabh,y
 	sta .tjmp+2
 	rts
-*/
-
 
 .sttabl
 	DC.B <.s_pressplay
 	DC.B <.s_seeklead
 	DC.B <.s_countlead
-	DC.B <.s_findzero	
+	DC.B <.s_findzero
+	DC.B <.s_r_ee
 	DC.B <.s_rheader
 	DC.B <.s_rdata
 	DC.B <.s_checksum
 	DC.B <.s_idle
-	
+
 .sttabh
 	DC.B >.s_pressplay
 	DC.B >.s_seeklead
 	DC.B >.s_countlead
-	DC.B >.s_findzero	
+	DC.B >.s_findzero
+	DC.V >.s_r_ee
 	DC.B >.s_rheader
 	DC.B >.s_rdata
 	DC.B >.s_checksum
 	DC.B >.s_idle
 
 .gcrtobin
-;	DC.B $ff		; 0-8, aren't valid GCR nybbles
-;	DC.B $ff		; so we get rid of them
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
+	DC.B $ff		; invalid GCR nybbles = $ff
+	DC.B $ff
+	DC.B $ff
+	DC.B $ff
+	DC.B $ff
+	DC.B $ff
+	DC.B $ff
+	DC.B $ff
+	DC.B $ff
 	DC.B $08		; $09 %01001
 	DC.B $00		; $0a %01010
 	DC.B $01		; $0b %01011
@@ -595,7 +505,7 @@ inc tstat
 	DC.B $ff
 	DC.B $0d		; $1d %11101
 	DC.B $0e		; $1e %11110
-;	DC.B $ff		; and neither is $1f
+	DC.B $ff
 
 .restor DC.B 0,0,0
 .tbuf	DS 1+16+4		; block type, filename, start/end
