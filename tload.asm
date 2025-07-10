@@ -23,7 +23,7 @@ etmp	EQU $e0			; temp var in sync
 delay1	EQU $e4			; delay line jump ptr 1
 delay2	EQU $e5			; delay line jump ptr 2
 tbase	EQU $e6			; timebase
-tsym	EQU $e7			; timebase leading edge (a)symmetry
+tsym	EQU $e7			; timebase rising edge (a)symmetry
 
 ; tstat
 ;00	waiting for datasette play button to be pressed

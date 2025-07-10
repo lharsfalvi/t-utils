@@ -5,12 +5,12 @@
 
 	INCLUDE "basicstub.asm"
 
-T	EQU $C0				; Default T = $C0
+T	EQU $C0			; Default T = $C0
 
 
 	SUBROUTINE
 tsinst	lda #<tsave
-	sta $0330			; ISAVE vector
+	sta $0330		; ISAVE vector
 	lda #>tsave
 	sta $0331
 	jsr $ff81
@@ -66,10 +66,10 @@ res1_s
 
 	RORG $0800
 	SUBROUTINE
-tsave	ldx $ae				; FA; current device number
+tsave	ldx $ae			; FA; current device number
 	cpx #$07
 	beq .t1
-	jmp $f1a4			; Kernal Save chain
+	jmp $f1a4		; Kernal Save chain
 
 ; At this point we have
 ; logical file in	$ac		LA
@@ -110,13 +110,13 @@ tsave	ldx $ae				; FA; current device number
 	cpy #$10
 	bne .t5
 	
-	jsr $e319			; press play & record
+	jsr $e319		; press play & record
 	bcc .t7
 	php
-	jmp $8ccc			; break error
-.t7	jsr $f22c			; Saving <filename>
-	jsr $e364			; Screen off, T1, sei
-	jsr $e38d			; Motor on
+	jmp $8ccc		; break error
+.t7	jsr $f22c		; Saving <filename>
+	jsr $e364		; Screen off, T1, sei
+	jsr $e38d		; Motor on
 
 	bit $ad
 	bmi .nobootstrap
@@ -139,9 +139,9 @@ tsave	ldx $ae				; FA; current device number
 	sta $ff19
 	ldx #12
 	jsr delay
-	jsr $e8c8			; Motor off, screen on etc.
+	jsr $e8c8		; Motor off, screen on etc.
 	lda #0
-	sta $90				; ST
+	sta $90			; ST
 	clc
 	rts
 
@@ -241,34 +241,34 @@ tblkout
 	sta $ff01
 	dec $ff09
 
-	ldy #$05			; $0500*2 lead quintuples
-	bit $ad
-	bpl .l0
-	ldy #$02			; except for regular files
+	ldy #$05		; $0500*2 lead quintuples
+;	bit $ad
+;	bpl .l0
+;	ldy #$02		; except for regular files
 .l0	jsr .writelead
 
 	lda #%11110
-	jsr .writegcrquintuple		; $eee
-	lda #$ee			; a.k.a
-	jsr .writegcrbyte		; %111101111011110
+	jsr .writegcrquintuple	; $eee
+	lda #$ee		; a.k.a
+	jsr .writegcrbyte	; %111101111011110
 	
 	lda #0
 	bit $ad
 	bpl .l01
 	lda #1
-.l01	jsr .writegcrbyte		; block type
+.l01	jsr .writegcrbyte	; block type
 
 	bit $ad
 	bpl .l02
 
-	ldy #0				; filename
+	ldy #0			; filename
 .l6	lda fnam,y
 	jsr .writegcrbyte
 	iny
 	cpy #$10
 	bne .l6
 
-	ldy #0				; start/end addr
+	ldy #0			; start/end addr
 .l5	lda $00ba,y
 	jsr .writegcrbyte
 	iny
@@ -300,14 +300,14 @@ tblkout
 	lda $f5
 	jsr .writegcrbyte
 	
-	ldy #$01			; $0100*2 lead-out quintuples
+	ldy #$01		; $0100*2 lead-out quintuples
 	jmp .writelead
 	
 		
 ; Write out one pulse from C.
 ; C=0 --> wait until T1 expires
 ; C=1 --> wait, then invert CST WRT
-.writepulse				; One pulse, in C
+.writepulse			; One pulse, in C
 	pha
 	lda #0
 	rol
@@ -467,7 +467,7 @@ fnam	EQU *+4
 	dex
 	bpl .bs5
 
-	txa				; "a bit of" delay + off screen
+	txa			; "a bit of" delay + off screen
 .ri1	cmp $ff1d
 	bne .ri1
 	dex
@@ -480,11 +480,11 @@ fnam	EQU *+4
 	stx $ff05
 	ror $ff13
 	
-.l2	jsr readlead			; find $ff lead, get T
+.l2	jsr readlead		; find $ff lead, get T
 
 	lda #$ff
 	sta $b6
-	sta $d7				; init
+	sta $d7			; init
 .l3	jsr readpulse
 	cmp #$ff
 	beq .l3
@@ -606,34 +606,34 @@ bootstrap_2_rstart
 	
 readlead
 
-.rl0	lda #$80			; rounding bias
+.rl0	lda #$80		; rounding bias
 	sta $da
 	sta $db
 	lda #0
-	sta $d8				; cumulators
+	sta $d8			; cumulators
 	sta $d9
 	sta $dc
 	sta $dd
 	sta $e4
-	lda #$10			; >number of lead pulses
+	lda #$10		; >number of lead pulses
 	sta $e5
 
 .rl1	ldx #0
-	jsr .waitflip			; rising edge
+	jsr .waitflip		; rising edge
 	jsr .cumulate
 	inx
-	jsr .waitflip			; falling edge
-	bne .rl0			; T > $0100, see ya
+	jsr .waitflip		; falling edge
+	bne .rl0		; T > $0100, see ya
 	jsr .cumulate
 	lda $d6
-	bne .rl0			; T > $0100, see ya
+	bne .rl0		; T > $0100, see ya
 	
 	lda $d4
 	sbc $d5
 	bcs .rl2
 	eor #$ff
-.rl2	cmp #$40			; has to be roughly symmetric
-	bcs .rl0			; or see ya
+.rl2	cmp #$40		; has to be roughly symmetric
+	bcs .rl0		; or see ya
 	
 	dec $e4
 	bne .rl1
@@ -644,21 +644,21 @@ readlead
 	lda $dc
 	adc $dd
 	ror
-	sta $e6				; store timebase
+	sta $e6			; store timebase
 	tay
 
 	sec
 	sbc $dd
-	sta $e7				; rising edge asymmetry delay
+	sta $e7			; rising edge asymmetry delay
 
 	tya
 	lsr
 	tay
 	adc $e7
-	sta $d8				; precalc correction for read
+	sta $d8			; precalc correction for read
 	tya
 	sbc $e7
-	sta $d9				; and for the opposite pulse
+	sta $d9			; and for the opposite pulse
 	rts
 
 
@@ -667,10 +667,10 @@ readlead
 	sta .w2
 
 	lda #$10
-.w1	bit $01				; wait CST_RD' to flip
+.w1	bit $01			; wait CST_RD' to flip
 .w2	beq .w1	
 	
-	asl $ff13			; read timestamp
+	asl $ff13		; read timestamp
 	lda $ff02
 	ldy $ff05
 	ror $ff13
@@ -678,7 +678,7 @@ readlead
 	sta $d0,x
 	sty $d2,x
 
-	txa				; opposite phase index
+	txa			; opposite phase index
 	eor #$01
 	tay
 
@@ -686,7 +686,7 @@ readlead
 	eor #$41
 	sta $ff19
 	
-	lda $00d0,y			; derive T
+	lda $00d0,y		; derive T
 	sbc $d0,x
 	sta $d4,x
 	lda $00d2,y
@@ -694,7 +694,7 @@ readlead
 	sta $d6,x
 	rts
 
-.wcode	DC.B $f0, $d0			; beq, bne
+.wcode	DC.B $f0, $d0		; beq, bne
 
 
 .cumulate
@@ -712,16 +712,16 @@ readlead
 
 
 readpulse
-	lda $d6,x			; do we have time left?
-	bpl .rp1			; pos, yes we do.
+	lda $d6,x		; do we have time left?
+	bpl .rp1		; pos, yes we do.
 
-	txa				; flip edge polarity
+	txa			; flip edge polarity
 	eor #$01
 	tax
-	jsr .waitflip			; #findnext
+	jsr .waitflip		; #findnext
 	
 	lda $d4,x
-	sbc $d8,x			; sub T/2 +- edge corr.
+	sbc $d8,x		; sub T/2 +- edge corr.
 	sta $d4,x
 	bcs .rp1
 	dec $d6,x
@@ -734,7 +734,7 @@ readpulse
 	sbc #0
 	sta $d6,x
 
-	lda $b6				; if still above 0, we have a 0
+	lda $b6			; if still above 0, we have a 0
 	rol
 	eor #$01
 	sta $b6
@@ -742,7 +742,7 @@ readpulse
 
 	
 readgcrbyte
-	sty $e4				; push Y
+	sty $e4			; push Y
 	jsr .readgcrnybble
 	asl
 	asl
@@ -750,7 +750,7 @@ readgcrbyte
 	asl
 	sta $b7
 	jsr .readgcrnybble
-	ldy $e4				; pull y
+	ldy $e4			; pull y
 	and #$0f
 	ora $b7
 	rts
