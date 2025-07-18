@@ -14,7 +14,6 @@ if ! dasm | head -1 | grep -q '^DASM 2\.'; then
 fi
 
 YEAR=$(date +"%Y")
-echo $YEAR
 TAG=$(git describe --exact-match --tags 2> /dev/null || git rev-parse --short HEAD)
 echo $TAG
 

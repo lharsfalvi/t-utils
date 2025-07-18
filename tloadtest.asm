@@ -19,7 +19,7 @@ rstart	jsr CINT
 	lda #$c0
 	sta $e6
 	lda #0
-	sta $e7	
+	sta $e7
 	lda #.fname-.fnam
 	ldx #<.fnam
 	ldy #>.fnam

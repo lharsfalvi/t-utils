@@ -12,14 +12,14 @@ tbuf	EQU $0333
 
 tstat_e	EQU $d0			; load state (external)
 tstat	EQU $d1			; load state (internal)
-sstat	EQU $d3			; sync status
+xstor	EQU $d2			; x register storage
+ystor	EQU $d3			; y register storage
 sacc	EQU $d4			; serial accu (live)
 pacc	EQU $d5			; process accu
 pac2	EQU $d6			; process accu 2
 gacc	EQU $d7			; GCR accu
 tcnt	EQU $d8			; temporary and raw bit counter
 bitstor	EQU $d9			; various 1-bit storage
-etmp	EQU $e0			; temp var in sync
 delay1	EQU $e4			; delay line jump ptr 1
 delay2	EQU $e5			; delay line jump ptr 2
 tbase	EQU $e6			; timebase
@@ -50,26 +50,27 @@ tsym	EQU $e7			; timebase rising edge (a)symmetry
 ; name len in		$ab		FNLEN
 ; name ptr in		$af/$b0		FNADR
 
+	ALIGN $0100
 
 ; filename length in A, pointer in X/Y
 tload_start
 	stx FNADR
 	sty FNADR+1
 	cmp #$10
-	bcc .ti1
+	bcc .ts1
 	lda #$10
-.ti1	sta FNLEN
-	lda #0
+.ts1	sta FNLEN
+	lda .quantr+15
+	bne .ts2
+	jsr .qtabgen
+.ts2	lda #0
 	sta tstat
 	sta tstat_e
-	sta sstat
-	sta bitstor
 	sta ST
 	jsr .setstatvect
 	lda #1
 	sta sacc
 	sta gacc
-	jsr calcdelay
 	sei
 	lda $ff0a
 	ldx $fffe
@@ -77,19 +78,16 @@ tload_start
 	sta .restor
 	stx .restor+1
 	sty .restor+2
-	lda #<tload_irq
-	ldx #>tload_irq
+	lda #<.tload_irq
+	ldx #>.tload_irq
 	sta $fffe
 	stx $ffff
-	lda tbase
-	sta $ff00
-	lda #0
-	sta $ff01
 	lda #$08
 	sta $ff0a
 	sta $ff09
-	lda #$1b
+	lda #$0b
 	sta $ff06
+	jsr .settimers
 	cli
 	rts
 
@@ -108,50 +106,104 @@ tload_stop
 	plp
 	rts
 
-; For the sampling to happen with the least maximum error around T/2,
-; IRQ has to hit at t = T/2 - known delay - max(random delay) / 2
-; where known delay is IRQ code runtime until sampling, and
-; random delay is that of badlines, IRQ acceptance, and single/double
-; clock (where applicable).
+; load timers
+.settimers
+	lda #$cf
+.st1	cmp $ff1d
+	bne .st1
+	lda #$d1
+.st2	cmp $ff1d
+	bne .st2
+	lda $ff1e
+	sec
+	sbc #$d0
+	lsr
+	sta .stj1
+.stj1	=*+1
+	bcc .stj1
+	cmp #$c9
+	cmp #$c9
+	cmp #$c5
+	nop
+	ldx #$08
+.st3	dex
+	bpl .st3
+	cmp $c5
+	lda #57
+	sta $ff00
+	lda #0
+	sta $ff01
+	rts
 
-tload_irq
-				; 0-6 + 0-43
-				; 7 IRQ ack + jmp
+
+
+.tload_fastirq
+				; 0-6 IRQ ack delay
+				; 7 IRQ state save + jmp
+	stx $ff09		; 4
+	cpx $01			; 3
+	rol sacc		; 5
+	rti			; 6		25
+
+.tload_irq
+				; 0-6 IRQ ack delay
+				; 7 IRQ state save + jmp
 	pha			; 3
 	lda #$c8		; 2
-	cmp $01			; 3 --> t=+15, should happen at T/2
+	cmp $01			; 3
 	sta $ff09		; 4 ACK IRQ
 	rol sacc		; 5
-.sjmp	bcs .tl2		; 2
+.sjmp	bcs .tl2		; 2 / 3
 	pla			; 4
-	rti			; 6	- worst-case 42
+	rti			; 6		36
 
-.tl2	lda sacc
-        sta pacc
-        lda #1
-	sta sacc
-        cli			; At this point we permit sub IRQ's
-				; to happen, to let subsequent
-				; data bits to be collected while
-				; processing the previously collected
-				; raw bit octet.
-        txa
-        pha
-        tya
-	pha
-        dec $ff19
+.tl2	lda sacc		; 3
+	sta pacc		; 3
+	lda #1			; 2
+	sta sacc		; 3		11	38
 
-	lda pacc		; level --> level change conversion
-	lsr bitstor
-	ror
-	rol bitstor
-	eor pacc
-	sta pacc
+	lsr bitstor		; 5
+	lda pacc		; 3
+	sta bitstor		; 3
+	ror			; 2
+	eor pacc		; 3
+	sta pacc		; 3		19	57
+
+	stx xstor		; 3
+	sty ystor		; 3
+	ldx #$c8		; 2
+	lda #<.tload_fastirq	; 2
+	bit $fffe		; 4		14	71
+
+	bit $ff05		; 4
+;	bmi .nobadline		; 2 / 3		6 / 7	77 / 78
+	bmi .irqe
+
+	cpx $01			; 3
+	rol sacc		; 5
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop			; 2		22
+
+	cpx $01			; 3
+	rol sacc		; 5
+	stx $ff09		; 4
+
+	jmp .irqe
+
+
+
+
+
 
 .tls	bit tstat		; are we pre- or within a gcr field
 	bmi .tlgd		; within, go gcr decoding
 	jsr .dostate		; call state handler with pacc in A
-	jmp .tsync
+	jmp .irqe
 
 .tlgd	lda pac2		; gcr raw bits decoupling
 	sec
@@ -183,145 +235,32 @@ tload_irq
 
 .tlem	sta pac2		; store collected but not processed bits
 
-.tsync	lda sstat		; now do sync if it's time to do a sync
-        beq .sync
-        dec sstat
-
-.irqe   inc $ff19
-        pla			; and now time to finish and return
-	tay
-	pla
-	tax
+.irqe	lda #0
+	sta $ff04
+	sta $ff05
+	ldy ystor
+	lda #<.tload_irq
+	sta $fffe
+	ldx xstor
         pla
         rti
 
-.sync	sei			; For this deal we're back to single thread
-	lda #3			; we try to find sync in max 4 bit times
-	sta etmp		; plus exchange
-
-	lda #<.sample		; set up local / sampling IRQ
-	sta $fffe
-	lda #>.sample
-	sta $ffff
-
-	lda $ff13		; precalc $ff13 values
-	and #$fd
-	sta .soff1
-	sta .soff2
-	ora #$02
-	sta .son
-
-.soff1	=*+1
-.sloop3 ldy #0
-	sty $ff13
-	lda #$c8
-	cmp $01
-	sbc #$c7
-	tay
-	lda .branch,y
-	sta .foo
-	lda delay1,y
-	sta .tim2
-
-	lda #$c8
-	cli
-.son	=*+1
-	ldy #0
-
-.sloop	cmp $01			; 3
-.foo	bcs .sloop		; 3
-
-.edge	lda $ff1d		; 4
-	sei			; 2
-	sty $ff13		; 4
-
-	sec			; 2
-	sbc #$01		; 2
-	cmp #$c4		; 2
-	ror			; 2
-	ldy $ff1c		; 4
-	cpy #$ff		; 2
-	ror			; 2
-	and #%11000001		; 2		- 18
-
-.tim2	EQU *+1
-	bne *+3			; 3
-	beq .sloop3		; unsuitable place, quit
-	DS 22,$ea		; 22 NOP's, 2 cycles each
-.ltbase	=*+1
-	lda #0			; 2
-	sta $ff00		; 4
-	lda #0			; 2
-	sta $ff01		; 4
-.soff2	=*+1
-	lda #0
-	sta $ff13
-	lda #$c8
-	sta $ff09
-	cmp $01
-	rol sacc
-	lda #1
-	sta sstat
-	bne .sampe2
-
-.sample sta $ff09
-	cmp $01
-	rol sacc
-	bmi .sampe
-	dec etmp
-	bmi .sampe
-	rti
-
-.sampe	pla
-	pla
-	pla
-.sampe2	lda #<tload_irq
-	sta $fffe
-	lda #>tload_irq
-	sta $ffff
-	jmp .irqe
-
-.branch DC.B $90, $B0		; bcc, bcs
-
-calcdelay
-	lda tbase
-	sta .ltbase
-	sec
-	sbc tsym
-	lsr			; (T-A)/2
-	pha
-	jsr .calc
-	sta delay2
-	pla
-	clc
-	adc tsym		; +A
-	jsr .calc
-	sta delay1
-	rts
-
-.calc	cmp #74
-	bcs .c1
-	lda #74
-.c1	cmp #118
-	bcc .c2
-	lda #118
-.c2	clc
-	sbc #(74+48)
-	eor #$ff
-	lsr
-	rts
 
 ; Call current state handler
 .dostate
 .tjmp	jmp .s_pressplay	; call current state handler
 
-;00	waiting for datasette key to be pressed
+; ---- state machine routines
+
+;00	waiting for play button to be pressed
 .s_pressplay
 	lda #$04
 	bit $fd10
 	bne .s_exit
 	lda #$c0		; motor on
 	sta $01
+	lda #$01
+	sta bitstor		; zero polarity
 	inc tstat_e
 	jmp .incstat
 
@@ -451,6 +390,78 @@ calcdelay
 	sta .tjmp+2
 	rts
 
+; --- end of state machine routines
+
+.qtabgen
+; we can and do overload a few zp's for this current task.
+.al	EQU $d0			; accumulator
+.ah	EQU $d1
+.cl	EQU $d2			; compare value
+.ch	EQU $d3
+
+	ldx #0
+	clc
+	jsr .tgen2		; q table for rising edge
+	sec			; and for falling edge
+
+.tgen2	php
+	ldy #0
+	sty .al
+	sty .ah
+	lda tbase
+	lsr
+.tg1	plp
+	bcs .tg2
+	adc tsym
+	bcc .tg3
+	iny
+	bcs .tg3
+.tg2	sbc tsym
+	bcs .tg3
+	dey
+.tg3	sta .cl
+	sty .ch
+
+	ldy #$80
+.tgl1	lda .cl
+	cmp .al
+	lda .ch
+	sbc .ah
+	bcs .tg4
+
+	tya
+	lsr
+	tay
+	lda .cl
+	clc
+	adc tbase
+	sta .cl
+	bcc .tg4
+	inc .ch
+
+.tg4	tya
+	asl
+	bcc .tg6
+	ror			; x < min --> x := min
+.tg6	sta .quantr,x
+	inx
+	lda .al
+	clc
+	adc #57
+	sta .al
+	bcc .tg5
+	inc .ah
+.tg5	cmp #$90		; low byte of 16*57 = $0390
+	bne .tgl1
+
+	rts
+
+
+;quantization tables; rising, falling edge time
+.quantr	DS 16,0
+.quantf	DS 16,0
+
+;state handler address tables
 .sttabl
 	DC.B <.s_pressplay
 	DC.B <.s_seeklead
@@ -473,6 +484,7 @@ calcdelay
 	DC.B >.s_checksum
 	DC.B >.s_idle
 
+;gcr to bin conversion table
 .gcrtobin
 	DC.B $ff		; invalid GCR nybbles = $ff
 	DC.B $ff
