@@ -19,9 +19,10 @@ pacc	EQU $d5			; process accu
 pac2	EQU $d6			; process accu 2
 gacc	EQU $d7			; GCR accu
 tcnt	EQU $d8			; temporary and raw bit counter
-bitstor	EQU $d9			; various 1-bit storage
-delay1	EQU $e4			; delay line jump ptr 1
-delay2	EQU $e5			; delay line jump ptr 2
+polar	EQU $d9			; edge polarity that we're finding
+cacc	EQU $da			; counter accu
+pstat	EQU $db			; processing status
+rcsr	EQU $dc			; read cursor
 tbase	EQU $e6			; timebase
 tsym	EQU $e7			; timebase rising edge (a)symmetry
 
@@ -52,23 +53,32 @@ tsym	EQU $e7			; timebase rising edge (a)symmetry
 
 	ALIGN $0100
 
-; filename length in A, pointer in X/Y
+tload_init
+	jmp .tload_init
 tload_start
+	jmp .tload_start
+tload_stop
+	jmp .tload_stop
+
+; filename length in A, pointer in X/Y
+.tload_start
 	stx FNADR
 	sty FNADR+1
 	cmp #$10
 	bcc .ts1
 	lda #$10
 .ts1	sta FNLEN
-	lda .quantr+15
-	bne .ts2
-	jsr .qtabgen
-.ts2	lda #0
+	lda #0
 	sta tstat
 	sta tstat_e
 	sta ST
+	sta polar
+	sta cacc
+	sta pstat
+	sta .wcsr
+	sta rcsr
 	jsr .setstatvect
-	lda #1
+	lda #$80
 	sta sacc
 	sta gacc
 	sei
@@ -82,16 +92,16 @@ tload_start
 	ldx #>.tload_irq
 	sta $fffe
 	stx $ffff
+	lda #$1b
+	sta $ff06
+	jsr .settimers
 	lda #$08
 	sta $ff0a
 	sta $ff09
-	lda #$0b
-	sta $ff06
-	jsr .settimers
 	cli
 	rts
 
-tload_stop
+.tload_stop
 	php
 	sei
 	lda #$c8
@@ -108,10 +118,10 @@ tload_stop
 
 ; load timers
 .settimers
-	lda #$cf
+	lda #$fc
 .st1	cmp $ff1d
 	bne .st1
-	lda #$d1
+	lda #$fe
 .st2	cmp $ff1d
 	bne .st2
 	lda $ff1e
@@ -133,9 +143,23 @@ tload_stop
 	sta $ff00
 	lda #0
 	sta $ff01
+	lda #$01
+.st4	bit $ff1c
+	bne .st4
+	cmp $ff1d
+	bne .st4		; returns on line 1
 	rts
 
 
+; raster line number map
+; (line number where .tl2 happens)
+; pos			line	line/2
+; first char		2	1
+; last char		c2	61
+; first free		ca	65
+; last free, PAL	132	99
+; truncated chunk, NTSC	ca	65
+; last free, NTSC	100	80
 
 .tload_fastirq
 				; 0-6 IRQ ack delay
@@ -143,7 +167,11 @@ tload_stop
 	stx $ff09		; 4
 	cpx $01			; 3
 	rol sacc		; 5
-	rti			; 6		25
+	bcs .tlfast2		; 2 / 3		22
+	rti			; 6		27
+.tlfast2
+	pha			; 3
+	bcs .tl2		; 3		28
 
 .tload_irq
 				; 0-6 IRQ ack delay
@@ -153,50 +181,113 @@ tload_stop
 	cmp $01			; 3
 	sta $ff09		; 4 ACK IRQ
 	rol sacc		; 5
-.sjmp	bcs .tl2		; 2 / 3
+	bcs .tl2		; 2 / 3		27
 	pla			; 4
 	rti			; 6		36
 
+
 .tl2	lda sacc		; 3
-	sta pacc		; 3
+.wcsr	=*+1					; write cursor
+	sta .cbuf		; 4
 	lda #1			; 2
-	sta sacc		; 3		11	38
+	sta sacc		; 3
+	lda .wcsr		; 4
+	inc .wcsr		; 6
+	cmp #25			; 2
+	bcc .badline		; 2 / 3		26 / 27
+	
+	cmp #38
+	bne .nobadline
+	lda #0			; buffer loop
+	sta .wcsr
+	lda #1			; ntsc line number fix
+	sta sacc
+	bne .nobadline
+	
 
-	lsr bitstor		; 5
-	lda pacc		; 3
-	sta bitstor		; 3
-	ror			; 2
-	eor pacc		; 3
-	sta pacc		; 3		19	57
+.badline
+	lda #$c8		; 2
+; spend x cycles so that cmp happens at cmp(-1) + 65
+; this is 44, spend 21 cycles
+	pha
+	pla
+	pha
+	pla
+	pha
+	pla
 
-	stx xstor		; 3
-	sty ystor		; 3
-	ldx #$c8		; 2
-	lda #<.tload_fastirq	; 2
-	bit $fffe		; 4		14	71
-
-	bit $ff05		; 4
-;	bmi .nobadline		; 2 / 3		6 / 7	77 / 78
-	bmi .irqe
-
-	cpx $01			; 3
+	cmp $01			; 3
 	rol sacc		; 5
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop			; 2		22
+	pha			; 3
+	pla			; 4
+	pha			; 3
+	pla			; 4		22
 
-	cpx $01			; 3
+	cmp $01			; 3
 	rol sacc		; 5
-	stx $ff09		; 4
+	pha
+	pla
+	pha
+	pla
 
+	cmp $01			; 3
+	rol sacc		; 5
+	sta $ff09		; 4
+
+.nobadline
+	cli
+	lda pstat
+	beq .doprocess
+	
+	pla
+	rti
+
+.doprocess
+	dec pstat
+	stx xstor
+	ldx #$c8
+	lda #<.tload_fastirq
+	sta $fffe
+	sty ystor
+	stx $ff19
+
+.tlpl	ldy rcsr
+	sec
+	bcs .tlp1		; pal: bcs / ntsc: bne
+	rol cbuf
+	asl cbuf
+	clc
+.tlp1	sty rcsr
+	lda .cbuf,y
+	ldy cacc
+	bit polar
+	bmi .tlfall
+	
+	rol
+	bcs .tlpr2
+.tlpr1	iny
+	asl
+	bcc .tlpr1
+	beq .tlp3		; out of bits
+.tlpr2	
+
+
+
+
+.tlp3	sty cacc
+	ldy rcsr
+	iny
+	cpy #39
+	bne .tlp2
+	ldy #0
+.tlp2	cpy .wcsr
+	bne .tlp1
+
+
+.tlpe
+
+	sty rcsr
 	jmp .irqe
-
-
-
 
 
 
@@ -235,13 +326,13 @@ tload_stop
 
 .tlem	sta pac2		; store collected but not processed bits
 
-.irqe	lda #0
-	sta $ff04
-	sta $ff05
-	ldy ystor
+.irqe	ldy ystor
 	lda #<.tload_irq
 	sta $fffe
 	ldx xstor
+	lda #$ee
+	sta $ff19
+	inc pstat
         pla
         rti
 
@@ -259,8 +350,8 @@ tload_stop
 	bne .s_exit
 	lda #$c0		; motor on
 	sta $01
-	lda #$01
-	sta bitstor		; zero polarity
+	lda #$00
+	sta polar		; start by finding a rising edge
 	inc tstat_e
 	jmp .incstat
 
@@ -392,6 +483,18 @@ tload_stop
 
 ; --- end of state machine routines
 
+; tload init. Do static setup. Call once.
+; - Set PAL/NTSC switch.
+; - Build quantization tables according to tbase and tsym.
+
+.tload_init
+	ldx #$a9		; lda #  (2-byte nop)
+	lda $ff07
+	and #$40		; NTSC bit
+	beq .ti1
+	ldx #$f0		; beq
+.ti1	;stx .ntscsw
+
 .qtabgen
 ; we can and do overload a few zp's for this current task.
 .al	EQU $d0			; accumulator
@@ -422,16 +525,14 @@ tload_stop
 .tg3	sta .cl
 	sty .ch
 
-	ldy #$80
+	ldy #$00
 .tgl1	lda .cl
 	cmp .al
 	lda .ch
 	sbc .ah
 	bcs .tg4
 
-	tya
-	lsr
-	tay
+	iny
 	lda .cl
 	clc
 	adc tbase
@@ -439,11 +540,11 @@ tload_stop
 	bcc .tg4
 	inc .ch
 
-.tg4	tya
-	asl
-	bcc .tg6
-	ror			; x < min --> x := min
-.tg6	sta .quantr,x
+.tg4	dey
+	bpl .tg6
+	iny			; x < min --> x := min
+.tg6	tya
+	sta .quant,x
 	inx
 	lda .al
 	clc
@@ -456,10 +557,12 @@ tload_stop
 
 	rts
 
+	.ALIGN $100
+.cbuf	DS 39,0			; circular data buffer
 
-;quantization tables; rising, falling edge time
-.quantr	DS 16,0
-.quantf	DS 16,0
+
+;quantization tables for rising, falling edge time
+.quant	DS 32,0
 
 ;state handler address tables
 .sttabl
@@ -522,3 +625,17 @@ tload_stop
 .restor DC.B 0,0,0
 .tbuf	DS 1+16+4		; block type, filename, start/end
 
+/*
+.ntsctrch			; 8 vs. 6 line correction in NTSC
+	lda sacc		; 3
+	pha			; 3
+	and #%00000011		; 2
+	ora #%00000100		; 2
+	sta sacc		; 3
+	cli			; 2		15
+	pla
+	and #%11111100
+	ora #%00000010
+	sta pacc
+	bcs .nobadline		; number of bits !!!
+*/

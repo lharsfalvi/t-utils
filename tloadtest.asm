@@ -20,12 +20,16 @@ rstart	jsr CINT
 	sta $e6
 	lda #0
 	sta $e7
+	jsr tload_init
 	lda #.fname-.fnam
 	ldx #<.fnam
 	ldy #>.fnam
 	sei
 	sta $ff3f
 	jsr tload_start
+
+	lda #$c0		; motor on
+	sta $01
 	
 	lda #3
 .rloop	cmp $d0
