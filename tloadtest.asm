@@ -15,12 +15,14 @@ rstart	jsr CINT
 	jsr PRIMM
 	DC $0e, $08, $0d
 	DC "hELLO!",$0d
-	DC 0 
+	DC 0
+	lda $e6
+	bne .r0
 	lda #$c0
 	sta $e6
 	lda #0
 	sta $e7
-	jsr tload_init
+.r0	jsr tload_init
 	lda #.fname-.fnam
 	ldx #<.fnam
 	ldy #>.fnam
@@ -28,19 +30,16 @@ rstart	jsr CINT
 	sta $ff3f
 	jsr tload_start
 
-	lda #$c0		; motor on
-	sta $01
-	
 	lda #3
 .rloop	cmp $d0
 	bne .rloop
-	
+
 	sei
 	jsr tload_stop
 	sta $ff3e
 	jsr $e8c8
-		
+
 	jmp $ff52
-	
+
 .fnam	DC  "PAYLOAD"
 .fname

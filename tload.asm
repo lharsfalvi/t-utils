@@ -26,6 +26,7 @@ rcsr	EQU $dc			; read cursor
 tbase	EQU $e6			; timebase
 tsym	EQU $e7			; timebase rising edge (a)symmetry
 
+
 ; tstat
 ;00	waiting for datasette play button to be pressed
 ;01	searching for a lead
@@ -80,6 +81,10 @@ tload_stop
 	jsr .setstatvect
 	lda #$80
 	sta sacc
+	sta $07fc
+	lda #%00001000
+	sta pacc
+	lda #1
 	sta gacc
 	sei
 	lda $ff0a
@@ -195,7 +200,7 @@ tload_stop
 	inc .wcsr		; 6
 	cmp #25			; 2
 	bcc .badline		; 2 / 3		26 / 27
-	
+
 	cmp #38
 	bne .nobadline
 	lda #0			; buffer loop
@@ -203,18 +208,17 @@ tload_stop
 	lda #1			; ntsc line number fix
 	sta sacc
 	bne .nobadline
-	
 
 .badline
 	lda #$c8		; 2
 ; spend x cycles so that cmp happens at cmp(-1) + 65
-; this is 44, spend 21 cycles
+
 	pha
 	pla
 	pha
 	pla
-	pha
-	pla
+	nop
+	bit $ff
 
 	cmp $01			; 3
 	rol sacc		; 5
@@ -238,7 +242,7 @@ tload_stop
 	cli
 	lda pstat
 	beq .doprocess
-	
+
 	pla
 	rti
 
@@ -254,25 +258,61 @@ tload_stop
 .tlpl	ldy rcsr
 	sec
 	bcs .tlp1		; pal: bcs / ntsc: bne
-	rol cbuf
-	asl cbuf
+
+	rol .cbuf		; ntsc first chunk len fix
+	asl .cbuf
 	clc
-.tlp1	sty rcsr
-	lda .cbuf,y
+
+.tlp1	lda .cbuf,y
 	ldy cacc
-	bit polar
+;	bpl .tlp4
+;	pha
+;	ldy #$ff
+;	bne .tls
+
+.tlp4	bit polar
 	bmi .tlfall
-	
+
 	rol
 	bcs .tlpr2
 .tlpr1	iny
 	asl
 	bcc .tlpr1
 	beq .tlp3		; out of bits
-.tlpr2	
 
+.tlpr2	pha
+	lda .quant+$10,y
+	ora #$fc
+	dec polar
+	bmi .tlsh
 
+.tlfall	rol
+	bcc .tlpf2
+.tlpf1	iny
+	asl
+	bcs .tlpf1
+	bne .tlpf2
+	dey
+	bcc .tlp3
 
+.tlpf2	pha
+	lda .quant,y
+	ora #$fc
+	inc polar
+
+.tlsh	tay
+	lda pacc
+.tlsh1	cpy #$ff
+	rol
+	bcs .tls
+.tlsh2	iny
+	bne .tlsh1
+	sta pacc
+	sty cacc
+	pla
+	bit polar
+	bpl .tlpr1
+	bmi .tlpf1
 
 .tlp3	sty cacc
 	ldy rcsr
@@ -280,31 +320,21 @@ tload_stop
 	cpy #39
 	bne .tlp2
 	ldy #0
-.tlp2	cpy .wcsr
-	bne .tlp1
+.tlp2	sty rcsr
+	cpy .wcsr
+	bne .tlpl
+.tlpe	jmp .irqe
 
 
-.tlpe
-
-	sty rcsr
-	jmp .irqe
-
-
-
-.tls	bit tstat		; are we pre- or within a gcr field
+.tls	sty cacc
+	bit tstat		; are we pre- or within a gcr field
 	bmi .tlgd		; within, go gcr decoding
 	jsr .dostate		; call state handler with pacc in A
-	jmp .irqe
+.tlse	lda #%00001000		; reload pacc
+.tlser	ldy cacc		;
+	bne .tlsh2
 
-.tlgd	lda pac2		; gcr raw bits decoupling
-	sec
-
-.tlgl	rol pacc
-	beq .tlem		; pacc is out of valid bits, exit
-	rol
-	bcc .tlgl		; loop until 5 valid bits in pac2
-
-	tay			; do gcr decoding
+.tlgd	tay			; do gcr decoding
 ;	lda .gcrtobin,y		; check for GCR code error
 ;	bmi .gcrerror
 	lda gacc
@@ -314,17 +344,12 @@ tload_stop
 	asl
 	ora .gcrtobin,y
 	sta gacc
-	bcc .tnext
+	bcc .tlse
 
 	jsr .dostate		; call state handler with gacc in A
 	lda #1
 	sta gacc
-
-.tnext	lda #%00001000
-	clc
-	bcc .tlgl
-
-.tlem	sta pac2		; store collected but not processed bits
+	bne .tlse
 
 .irqe	ldy ystor
 	lda #<.tload_irq
@@ -357,7 +382,7 @@ tload_stop
 
 ;01	searching for a lead
 .s_seeklead
-	cmp #$ff		; pacc in A
+	cmp #$1f		; pacc in A
 	bne .s_exit
 	lda #$a0
 	sta tcnt
@@ -365,7 +390,7 @@ tload_stop
 
 ;02	found lead, counting
 .s_countlead
-	cmp #$ff
+	cmp #$1f
 	beq .s_c1
 	dec tstat
 	jmp .setstatvect
@@ -375,15 +400,21 @@ tload_stop
 
 ;03	found lead, searching for first 0 bit
 .s_findzero
-	cmp #$ff
+	cmp #$1f
 	beq .s_exit
 
+	sec			; do sync
+	rol			; a.k.a. throw away bits
+	asl			; before and including leading 0
+.s_f1	asl			; and prepare to read next nybble
+	bmi .s_f1		; from this point
+	lsr
+	lsr
 	sec
-	rol
-	bcc .s_f3
-.s_f2	asl
-	bcs .s_f2
-.s_f3	sta pacc
+.s_f2	ror
+	bcc .s_f2
+
+	sta pacc
 	pla			; throw return address away
 	pla
 	lda tstat
@@ -391,7 +422,8 @@ tload_stop
 	adc #$81
 	sta tstat		; also raise GCR decode strobe
 	jsr .setstatvect
-	jmp .tnext		; manually redo state machine
+	lda pacc
+	jmp .tlser		; manually re-enter bit read loop
 
 ;04	read lead's trailing $ee byte
 .s_r_ee
@@ -456,13 +488,12 @@ tload_stop
 ;07	read and compare checksum
 .s_checksum
 	inc tstat_e		; Ready!
-	lda #$c8		; and stop the datassette
-	sta $01			; in any case
-	lda gacc
 	eor CHKSUM
 	beq .s_c0
 	lda #$ff
 .s_c0	sta ST			; 0 on success, $ff on load error
+	lda #$c8		; stop the datassette
+	sta $01
 	jmp .incstat
 
 ;08	complete (idle)
@@ -516,12 +547,8 @@ tload_stop
 .tg1	plp
 	bcs .tg2
 	adc tsym
-	bcc .tg3
-	iny
-	bcs .tg3
+	bne .tg3
 .tg2	sbc tsym
-	bcs .tg3
-	dey
 .tg3	sta .cl
 	sty .ch
 
@@ -540,10 +567,12 @@ tload_stop
 	bcc .tg4
 	inc .ch
 
-.tg4	dey
-	bpl .tg6
-	iny			; x < min --> x := min
-.tg6	tya
+.tg4	tya
+	sec
+	sbc #1
+	bcs .tg6
+	adc #1
+.tg6	eor #$ff
 	sta .quant,x
 	inx
 	lda .al
@@ -581,7 +610,7 @@ tload_stop
 	DC.B >.s_seeklead
 	DC.B >.s_countlead
 	DC.B >.s_findzero
-	DC.V >.s_r_ee
+	DC.B >.s_r_ee
 	DC.B >.s_rheader
 	DC.B >.s_rdata
 	DC.B >.s_checksum
