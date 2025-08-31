@@ -9,7 +9,7 @@
 	IFNCONST REL_Y
 REL_Y	EQU 0
 	ENDIF
-	
+
 	SUBROUTINE basicstub
 
 .ra	SET * + 8 + 1				; precalc length hack

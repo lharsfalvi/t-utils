@@ -34,7 +34,7 @@ tsinst	lda #<tsave
 	inx
 	cpx #<res2_e
 	bne .l2
-	
+
 	ldx #$0f
 	ldy #0
 	clc
@@ -109,7 +109,7 @@ tsave	ldx $ae			; FA; current device number
 	iny
 	cpy #$10
 	bne .t5
-	
+
 	jsr $e319		; press play & record
 	bcc .t7
 	php
@@ -120,15 +120,15 @@ tsave	ldx $ae			; FA; current device number
 
 	bit $ad
 	bmi .nobootstrap
-	
+
 	ldx #0
 	jsr loadblockparams
 	jsr sblkout
-	
+
 	ldx #1
 	jsr loadblockparams
 	jsr sblkout
-	
+
 .nobootstrap
 
 	ldx #2
@@ -164,13 +164,13 @@ sblkout	tsx
 	ora #$02
 	sta $01			; CST WRT = 1
 	jsr $e452		; pulse = #$d0
-	ldy #$01
+	ldy #$02
 	sty $ff03		; kick timer 2
 	lda #$10
 	sta $ff09		; clear pending T2 interrupts
 	ldx #$fe
 	lda $f8			; TYPE != 0 --> head block
-	beq .l1			
+	beq .l1
 	ldy #$20
 .l1	jsr $e413		; write out one pulse
 	dex
@@ -212,10 +212,10 @@ sblkout	tsx
 	ldy #$01
 	ldx #$c2
 .l5	jsr $e413		; Write out $00c2 pulses
-	dex 
-	bne .l5 
-	dey 
-	bne .l5 
+	dex
+	bne .l5
+	dey
+	bne .l5
 	ldx #3
 
 delay	ldy #$40
@@ -251,7 +251,7 @@ tblkout
 	jsr .writegcrquintuple	; $eee
 	lda #$ee		; a.k.a
 	jsr .writegcrbyte	; %111101111011110
-	
+
 	lda #0
 	bit $ad
 	bpl .l01
@@ -278,7 +278,7 @@ tblkout
 .l02	ldy #0
 	tya
 	sta $f5
-	
+
 .l3	sta $ff3f
 	lda ($ba),y
 	sta $ff3e
@@ -287,7 +287,7 @@ tblkout
 	sta $f5
 	txa
 	jsr .writegcrbyte
-	
+
 	inc $ba
 	bne .l4
 	inc $bb
@@ -296,14 +296,14 @@ tblkout
 	lda $bb
 	sbc $bd
 	bcc .l3
-	
+
 	lda $f5
 	jsr .writegcrbyte
-	
+
 	ldy #$01		; $0100*2 lead-out quintuples
 	jmp .writelead
-	
-		
+
+
 ; Write out one pulse from C.
 ; C=0 --> wait until T1 expires
 ; C=1 --> wait, then invert CST WRT
@@ -325,7 +325,7 @@ tblkout
 	sbc #$0b+~(T)
 	sta .wp2
 .wp2	EQU *+1
-	bcs .wp2 
+	bcs .wp2
 	lda #$a9
 	lda #$a9
 	lda #$a5
@@ -422,15 +422,15 @@ bltyp	DC.B 3, 0, 1
 blstal	DC.B <bootstrap_1_start
 	DC.B <bootstrap_2_start
 	DC.B 0
-	
+
 blstah	DC.B >bootstrap_1_start
 	DC.B >bootstrap_2_start
 	DC.B 0
-	
+
 blendl	DC.B <bootstrap_1_end
 	DC.B <bootstrap_2_end
 	DC.B 0
-	
+
 blendh	DC.B >bootstrap_1_end
 	DC.B >bootstrap_2_end
 	DC.B 0
@@ -440,7 +440,7 @@ res1_e
 
 	ALIGN $100
 res2_s
-	
+
 ; bootstrap code, part 1
 ; loads and runs in the tape buffer
 ; pre arranged setup of the tape buffer to be written out
@@ -448,13 +448,13 @@ res2_s
 bootstrap_1_start
 fnam	EQU *+4
 	REND
-	
+
 	RORG $0333
-	
+
 	DC.W $0200		; will load to $0200
 	DC.W $0326		; and end at $0326-1 i.e. IBSOUT
 	DS 17,$20		; filename + 1 space
-;$0348	
+;$0348
 	SUBROUTINE
 	jsr $e364		; Screen off, T1, sei
 	lda #$c0
@@ -472,14 +472,14 @@ fnam	EQU *+4
 	bne .ri1
 	dex
 	bne .ri1
-	
+
 	asl $ff13
 	stx $ff02
 	stx $ff04
 	stx $ff03
 	stx $ff05
 	ror $ff13
-	
+
 .l2	jsr readlead		; find $ff lead, get T
 
 	lda #$ff
@@ -494,14 +494,14 @@ fnam	EQU *+4
 	bne .l2
 
 	jsr readgcrbyte
-	
+
 	ldy #0
 	sty $f5
 .l8	jsr readgcrbyte
 	sta ($2d),y
 	eor $f5
 	sta $f5
-	
+
 	inc $2d
 	bne .l9
 	inc $2e
@@ -511,7 +511,7 @@ fnam	EQU *+4
 	lda $2e
 	sbc $30
 	bcc .l8
-	
+
 	jsr readgcrbyte
 	pha
 
@@ -525,7 +525,7 @@ fnam	EQU *+4
 	jmp $a82b		; load error
 .bs3	jsr $8a9a		; Basic clr
 	clc
-	bit $8bbe		
+	bit $8bbe
 	jmp $8703
 
 gcrtobin
@@ -565,14 +565,14 @@ gcrtobin
 	DS $03ee-*, 0
 .dat	DC.W 0
 	DC.W 0
-;$03f2	
+;$03f2
 	REND
-	
+
 	RORG *-res2_s+$0c00
 bootstrap_1_end
 b_fsta	EQU *-4
 b_fend	EQU *-2
-	
+
 ; bootstrap code, part 2
 ; loads to $0200+...
 ; code derives timebase and polarity asymmetry factors
@@ -603,7 +603,7 @@ bootstrap_2_rstart
 ; $e6	Measured timebase
 ; $e7	Positive edge delay correction (from $db)
 
-	
+
 readlead
 
 .rl0	lda #$80		; rounding bias
@@ -627,14 +627,14 @@ readlead
 	jsr .cumulate
 	lda $d6
 	bne .rl0		; T > $0100, see ya
-	
+
 	lda $d4
 	sbc $d5
 	bcs .rl2
 	eor #$ff
 .rl2	cmp #$40		; has to be roughly symmetric
 	bcs .rl0		; or see ya
-	
+
 	dec $e4
 	bne .rl1
 	dec $e5
@@ -668,8 +668,8 @@ readlead
 
 	lda #$10
 .w1	bit $01			; wait CST_RD' to flip
-.w2	beq .w1	
-	
+.w2	beq .w1
+
 	asl $ff13		; read timestamp
 	lda $ff02
 	ldy $ff05
@@ -685,7 +685,7 @@ readlead
 	lda $ff19
 	eor #$41
 	sta $ff19
-	
+
 	lda $00d0,y		; derive T
 	sbc $d0,x
 	sta $d4,x
@@ -719,7 +719,7 @@ readpulse
 	eor #$01
 	tax
 	jsr .waitflip		; #findnext
-	
+
 	lda $d4,x
 	sbc $d8,x		; sub T/2 +- edge corr.
 	sta $d4,x
@@ -740,7 +740,7 @@ readpulse
 	sta $b6
 	rts
 
-	
+
 readgcrbyte
 	sty $e4			; push Y
 	jsr .readgcrnybble
@@ -767,7 +767,7 @@ readgcrbyte
 
 
 	DS $0300-*, 0
-	
+
 	DC.B $86, $86, $12, $87, $56, $89, $6e, $8b
 	DC.B $d6, $8b, $17, $94, $6a, $89, $88, $8b
 	DC.B $8b, $8c, $42, $ce, $0e, $ce, $4c, $f4
@@ -784,8 +784,8 @@ bootstrap_2_rend
 bootstrap_2_end
 	REND
 
-res2_e 
-	
+res2_e
+
 _textend
 	SEG.U bss
 _bssend
