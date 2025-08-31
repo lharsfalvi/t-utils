@@ -1,5 +1,11 @@
 	PROCESSOR 6502
 
+	IFNCONST TLOAD_BSS
+
+TLOAD_BSS 	EQU $1800	; has to be $100-aligned
+
+	ENDIF
+
 VARTAB	EQU $2d
 ST	EQU $90
 FNLEN	EQU $ab
@@ -7,6 +13,18 @@ FNADR	EQU $af
 CHKSUM	EQU $f5
 
 	SUBROUTINE
+
+	SEG.U bss
+	ORG TLOAD_BSS
+.ctabl	DS $100			; runlen
+.ctabj	DS $100			; jump next
+.ctabr	DS $100			; remaining last
+.cbuf	DS 39			; circular data buffer
+.quant	DS $20			; quantization tables
+.restor DS 3			; irq restore temp
+.tbuf	DS 1+16+4		; block type, filename, start/end
+
+	SEG text
 
 tbuf	EQU $0333
 
@@ -16,13 +34,15 @@ xstor	EQU $d2			; x register storage
 ystor	EQU $d3			; y register storage
 sacc	EQU $d4			; serial accu (live)
 pacc	EQU $d5			; process accu
-pac2	EQU $d6			; process accu 2
+;pac2	EQU $d6			; process accu 2
 gacc	EQU $d7			; GCR accu
 tcnt	EQU $d8			; temporary and raw bit counter
 polar	EQU $d9			; edge polarity that we're finding
 cacc	EQU $da			; counter accu
 pstat	EQU $db			; processing status
 rcsr	EQU $dc			; read cursor
+ytmp	EQU $dd			; Y temp
+stmp	EQU $de			; sample temp
 tbase	EQU $e6			; timebase
 tsym	EQU $e7			; timebase rising edge (a)symmetry
 
@@ -51,8 +71,6 @@ tsym	EQU $e7			; timebase rising edge (a)symmetry
 
 ; name len in		$ab		FNLEN
 ; name ptr in		$af/$b0		FNADR
-
-	ALIGN $0100
 
 tload_init
 	jmp .tload_init
@@ -86,6 +104,7 @@ tload_stop
 	sta pacc
 	lda #1
 	sta gacc
+
 	sei
 	lda $ff0a
 	ldx $fffe
@@ -246,6 +265,9 @@ tload_stop
 	pla
 	rti
 
+.ntscfix
+;	beq .tlp1
+
 .doprocess
 	dec pstat
 	stx xstor
@@ -256,100 +278,38 @@ tload_stop
 	stx $ff19
 
 .tlpl	ldy rcsr
-	sec
-	bcs .tlp1		; pal: bcs / ntsc: bne
+	bmi .ntscfix		; pal/ntsc switch bmi/beq
 
-	rol .cbuf		; ntsc first chunk len fix
-	asl .cbuf
-	clc
-
-.tlp1	lda .cbuf,y
-	ldy cacc
-;	bpl .tlp4
-;	pha
-;	ldy #$ff
-;	bne .tls
-
-.tlp4	bit polar
-	bmi .tlfall
-
-	rol
-	bcs .tlpr2
-.tlpr1	iny
+.tlpl1	lda .cbuf,y		; load sample
+	sta stmp
+	tay
+	eor polar
 	asl
-	bcc .tlpr1
-	beq .tlp3		; out of bits
+	tya
+	bcs .process1		; polarity has flipped on byte boundary
 
-.tlpr2	pha
-	lda .quant+$10,y
-	ora #$fc
-	dec polar
-	bmi .tlsh
+	lda .ctabl,y
+	bmi .tp0		; no change
+	adc cacc
+	bcc .process
 
-.tlfall	rol
-	bcc .tlpf2
-.tlpf1	iny
-	asl
-	bcs .tlpf1
-	bne .tlpf2
-	dey
-	bcc .tlp3
+.tp0	and #$7f
+	adc cacc
+	sta cacc
+	bpl .prend
+	lda #$0f
+	sta cacc
+	tya
+	bcc .process1
 
-.tlpf2	pha
-	lda .quant,y
-	ora #$fc
-	inc polar
-
-.tlsh	tay
-	lda pacc
-.tlsh1	cpy #$ff
-	rol
-	bcs .tls
-.tlsh2	iny
-	bne .tlsh1
-	sta pacc
-	sty cacc
-	pla
-	bit polar
-	bpl .tlpr1
-	bmi .tlpf1
-
-.tlp3	sty cacc
-	ldy rcsr
+.prend	ldy rcsr
 	iny
-	cpy #39
+	cpy #39			; pal: 39, ntsc: 33
 	bne .tlp2
 	ldy #0
 .tlp2	sty rcsr
 	cpy .wcsr
 	bne .tlpl
-.tlpe	jmp .irqe
-
-
-.tls	sty cacc
-	bit tstat		; are we pre- or within a gcr field
-	bmi .tlgd		; within, go gcr decoding
-	jsr .dostate		; call state handler with pacc in A
-.tlse	lda #%00001000		; reload pacc
-.tlser	ldy cacc		;
-	bne .tlsh2
-
-.tlgd	tay			; do gcr decoding
-;	lda .gcrtobin,y		; check for GCR code error
-;	bmi .gcrerror
-	lda gacc
-	asl
-	asl
-	asl
-	asl
-	ora .gcrtobin,y
-	sta gacc
-	bcc .tlse
-
-	jsr .dostate		; call state handler with gacc in A
-	lda #1
-	sta gacc
-	bne .tlse
 
 .irqe	ldy ystor
 	lda #<.tload_irq
@@ -361,10 +321,78 @@ tload_stop
         pla
         rti
 
+.process
+	sta cacc
+	lda .ctabj,y
+.process1
+	sta ytmp
+	lda cacc
+	and #$0f
+.process2
+	bit polar
+	bpl .tp1
+	ora #$10
+.tp1	tay
+	lda .quant,y
+	asl
+	rol pacc
+	bcc .tp2
+	pha
+	jsr .dostate
+	pla
+.tp2	asl
+	beq .tpe
+	rol pacc
+	bcc .tp3
+	pha
+	jsr .dostate
+	pla
+.tp3	asl
+	beq .tpe
+	rol pacc
+	bcc .tpe
+	jsr .dostate
+
+.tpe	ldy ytmp
+	sty polar
+	lda .ctabj,y
+	sta ytmp
+	lda .ctabl,y
+	bpl .process2
+	ldy stmp
+	lda .ctabr,y
+	sta cacc
+	jmp .prend
 
 ; Call current state handler
 .dostate
+	lda pacc
+	ldy #%00001000
+	sty pacc
+
+	bit tstat		; are we pre- or within a gcr field
+	bpl .tjmp		; pre, process raw
+
+	tay			; do gcr decoding
+;	lda .gcrtobin,y		; check for GCR code error
+;	bmi .gcrerror
+	lda gacc
+	asl
+	asl
+	asl
+	asl
+	ora .gcrtobin,y
+	bcc .de
+
+	ldy #1
+	sty gacc
+
 .tjmp	jmp .s_pressplay	; call current state handler
+				; pacc or gacc in A
+
+.de	sta gacc
+	rts
+
 
 ; ---- state machine routines
 
@@ -391,12 +419,13 @@ tload_stop
 ;02	found lead, counting
 .s_countlead
 	cmp #$1f
-	beq .s_c1
-	dec tstat
+	bne .s_c1
+	dec tcnt
+	beq .s_c2		; countlead exits with tcnt=0
+	rts
+.s_c1	dec tstat
 	jmp .setstatvect
-.s_c1	dec tcnt
-	bne .s_exit
-	jmp .incstat		; countlead exits with tcnt=0
+.s_c2	jmp .incstat
 
 ;03	found lead, searching for first 0 bit
 .s_findzero
@@ -415,20 +444,18 @@ tload_stop
 	bcc .s_f2
 
 	sta pacc
-	pla			; throw return address away
-	pla
 	lda tstat
 	clc
 	adc #$81
 	sta tstat		; also raise GCR decode strobe
-	jsr .setstatvect
-	lda pacc
-	jmp .tlser		; manually re-enter bit read loop
+	jmp .setstatvect
 
 ;04	read lead's trailing $ee byte
 .s_r_ee
 	cmp #$ee		; gacc in A
 	bne .s_lnf		; $ee found?
+	lda #0
+	sta CHKSUM
 	jmp .incstat		; found, next state
 .s_lnf	lda #1			; ...not found, go back to seeklead
 	sta tstat
@@ -526,8 +553,110 @@ tload_stop
 	ldx #$f0		; beq
 .ti1	;stx .ntscsw
 
+.ctabgen			; count table generator
+
+; index		len	remg.	cont. from
+; %00000000	8	0	%00000000
+; %00000001	7	1	%11111111
+; %00000010	6	2	%10000000
+; %00000011	6	2	%11111111
+; %00000100	5	3	%10000000
+; %00000101	5	3	%10111111
+
+; %01111111	1	7	%11111111
+
+; %10000000	1	7	%00000000
+
+; %11111100	6	2	%00000000
+; %11111101	6	2	%01111111
+; %11111110	7	1	%00000000
+; %11111111	8	0	%11111111
+
+
+; %00000000	8
+; %00000001	1
+; %00000010	1
+; %00000011	2
+; %00000100	2
+; %00000101	1
+; %00000110	1
+; %00000111	3
+; %00001000	3
+; %00001001	1
+
+
+.thr	EQU $d0			; threshold
+.val	EQU $d1			; value
+.xstor	EQU $d3			; x temp store
+.ttmp	EQU $d4			; temp reg
+.rem	EQU $d5			; temp remainder
+
+	lda #0
+	tax
+	tay
+	sta .thr
+	lda #8
+	sta .val
+	dex
+.ctl1	inx
+	dey
+	lda .val
+	sta .ctabl,x
+	sta .ctabl,y
+	eor #$ff
+	clc
+	adc #$09
+	sta .rem
+
+	stx .xstor
+	stx .ttmp
+	ldx #$07
+.ctl4	asl .ttmp
+	ror
+	dex
+	bpl .ctl4
+	tax
+	lda .val
+	sta .ctabr,x
+	txa
+	eor #$ff
+	tax
+	lda .val
+	sta .ctabr,x
+
+	ldx .xstor
+	stx .ttmp
+	txa
+	ldx #0
+	and #$01
+	beq .ct1
+	dex
+
+.ct1	txa
+	ldx .rem
+	beq .ct2
+.ctl2	lsr .ttmp
+	ror
+	dex
+	bne .ctl2
+.ct2	ldx .xstor
+	sta .ctabj,x
+	eor #$ff
+	sta .ctabj,y
+
+	cpx .thr
+	bne .ctl1
+	sec
+	rol .thr
+	dec .val
+	cpx #$7f
+	bne .ctl1
+
+	lda #$88
+	sta .ctabl
+	sta .ctabl+$ff
+
 .qtabgen
-; we can and do overload a few zp's for this current task.
 .al	EQU $d0			; accumulator
 .ah	EQU $d1
 .cl	EQU $d2			; compare value
@@ -535,7 +664,7 @@ tload_stop
 
 	ldx #0
 	clc
-	jsr .tgen2		; q table for rising edge
+	jsr .tgen2		; quant table for rising edge
 	sec			; and for falling edge
 
 .tgen2	php
@@ -552,14 +681,16 @@ tload_stop
 .tg3	sta .cl
 	sty .ch
 
-	ldy #$00
+	ldy #$c0
 .tgl1	lda .cl
 	cmp .al
 	lda .ch
 	sbc .ah
 	bcs .tg4
 
-	iny
+	tya
+	lsr
+	tay
 	lda .cl
 	clc
 	adc tbase
@@ -568,12 +699,14 @@ tload_stop
 	inc .ch
 
 .tg4	tya
-	sec
-	sbc #1
-	bcs .tg6
-	adc #1
-.tg6	eor #$ff
-	sta .quant,x
+	asl
+	bcc .tg6
+	ror			; x < min --> x := min
+.tg6	cmp #$18
+	bne .tg7
+	lda #$40		; override len>3
+.tg7	sta .quant,x
+
 	inx
 	lda .al
 	clc
@@ -585,13 +718,6 @@ tload_stop
 	bne .tgl1
 
 	rts
-
-	.ALIGN $100
-.cbuf	DS 39,0			; circular data buffer
-
-
-;quantization tables for rising, falling edge time
-.quant	DS 32,0
 
 ;state handler address tables
 .sttabl
@@ -650,9 +776,6 @@ tload_stop
 	DC.B $0d		; $1d %11101
 	DC.B $0e		; $1e %11110
 	DC.B $ff
-
-.restor DC.B 0,0,0
-.tbuf	DS 1+16+4		; block type, filename, start/end
 
 /*
 .ntsctrch			; 8 vs. 6 line correction in NTSC
