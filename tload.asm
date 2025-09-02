@@ -1,10 +1,18 @@
 	PROCESSOR 6502
 
-	IFNCONST TLOAD_BSS
-
-TLOAD_BSS 	EQU $1800	; has to be $100-aligned
-
+	IFCONST mod_tload	; if we're building standalone tload
+	SEG text
+	ORG $f800
+TLOAD_BSS 	SET $f400	; has to be $100-aligned
 	ENDIF
+
+	IFNCONST TLOAD_BSS
+TLOAD_BSS 	SET $1800	; has to be $100-aligned
+	ENDIF
+
+; Workaround for dasm's IFCONST bug
+REL_T	SET "N/A"
+	INCLUDE "ver.lst"
 
 VARTAB	EQU $2d
 ST	EQU $90
@@ -25,8 +33,6 @@ CHKSUM	EQU $f5
 .tbuf	DS 1+16+4		; block type, filename, start/end
 
 	SEG text
-
-tbuf	EQU $0333
 
 tstat_e	EQU $d0			; load state (external)
 tstat	EQU $d1			; load state (internal)
@@ -78,6 +84,8 @@ tload_start
 	jmp .tload_start
 tload_stop
 	jmp .tload_stop
+; Version string
+	DC "V", REL_T
 
 ; filename length in A, pointer in X/Y
 .tload_start

@@ -6,16 +6,23 @@
 CINT	EQU $ff81
 PRIMM	EQU $ff4f
 
+; Workaround for dasm's IFCONST bug
+REL_T	SET "N/A"
+	INCLUDE "ver.lst"
+
 	INCLUDE "basicstub.asm"
 	jmp rstart
+
 	INCLUDE "tload.asm"
 
 	SUBROUTINE
 rstart	jsr CINT
 	jsr PRIMM
 	DC $0e, $08, $0d
-	DC "hELLO!",$0d
-	DC 0
+	DC "Tloadtest",$0d
+	DC "Tload V", REL_T
+	DC.B 13,0
+
 	lda $e6
 	bne .r0
 	lda #$c0
