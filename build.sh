@@ -52,7 +52,7 @@ for FILENAME in $FILES; do
   if ! dasm "$FILE.asm" \
 	    "-l$FILE.lst" \
 	    "-o$FILE.prg" \
-	    "-Dmod_$FILE=1" \
+	    "-Dmod_$FILE" \
 	    "$DAOPTS"
   then
     echo 1>&2 "Failed to assemble $FILENAME"
