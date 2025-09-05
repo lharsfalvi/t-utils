@@ -223,15 +223,17 @@ tload_stop
 	sta .cbuf		; 4
 	lda #1			; 2
 	sta sacc		; 3
-	lda .wcsr		; 4
 	inc .wcsr		; 6
-	cmp #25			; 2
+	lda .wcsr		; 4
+	cmp #26			; 2
 	bcc .badline		; 2 / 3		26 / 27
 
-	cmp #38
+.rset1	=*+1
+	cmp #39
 	bne .nobadline
 	lda #0			; buffer loop
 	sta .wcsr
+.sset	=*+1
 	lda #1			; ntsc line number fix
 	sta sacc
 	bne .nobadline
@@ -273,8 +275,27 @@ tload_stop
 	pla
 	rti
 
-.ntscfix
-;	beq .tlp1
+; in cbuf: %00abcdef
+.ntscfix			; once per frame
+	lda #$20
+	and .cbuf
+	bne .nt1
+	lda #$c0
+.nt1	ora .cbuf
+	sta stmp
+;%!a!aabcdef
+	and #$3f
+	lsr
+	bcc .nt2
+	ora #$c0
+.nt2	rol
+	rol
+	rol
+
+	bcc .tent
+
+;%abcdefff
+
 
 .doprocess
 	dec pstat
@@ -283,14 +304,17 @@ tload_stop
 	lda #<.tload_fastirq
 	sta $fffe
 	sty ystor
+	IFCONST mod_tloadtest
 	stx $ff19
+	ENDIF
 
 .tlpl	ldy rcsr
+.nsw	=*
 	bmi .ntscfix		; pal/ntsc switch bmi/beq
 
 .tlpl1	lda .cbuf,y		; load sample
 	sta stmp
-	tay
+.tent	tay
 	eor polar
 	asl
 	tya
@@ -301,7 +325,7 @@ tload_stop
 	adc cacc
 	bcc .process
 
-.tp0	and #$7f
+.tp0	lda .ctabr,y
 	adc cacc
 	sta cacc
 	bpl .prend
@@ -312,6 +336,7 @@ tload_stop
 
 .prend	ldy rcsr
 	iny
+.rset2	=*+1
 	cpy #39			; pal: 39, ntsc: 33
 	bne .tlp2
 	ldy #0
@@ -323,8 +348,10 @@ tload_stop
 	lda #<.tload_irq
 	sta $fffe
 	ldx xstor
+	IFCONST mod_tloadtest
 	lda #$ee
 	sta $ff19
+	ENDIF
 	inc pstat
         pla
         rti
@@ -554,12 +581,20 @@ tload_stop
 ; - Build quantization tables according to tbase and tsym.
 
 .tload_init
-	ldx #$a9		; lda #  (2-byte nop)
 	lda $ff07
 	and #$40		; NTSC bit
-	beq .ti1
-	ldx #$f0		; beq
-.ti1	;stx .ntscsw
+	bne .ti1
+	lda #39			; PAL parameters, number of chr rows
+	ldx #$01		; sacc last reload value
+	ldy #$30		; bmi
+	bne .ti2
+.ti1	lda #33			; NTSC parameters
+	ldx #$04		; only 6 bits in the last chr row
+	ldy #$f0		; beq
+.ti2	sta .rset1		; see: labels in the code
+	sta .rset2
+	stx .sset
+	sty .nsw
 
 .ctabgen			; count table generator
 
