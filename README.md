@@ -1,5 +1,7 @@
 # t-utils
 
+A.k.a. "Tape-Utils".
+
 ## Overview
 T-utils is a set of utilities to assist producing cassette tape based software releases for the [Commodore 264 series](https://en.wikipedia.org/wiki/Commodore_Plus/4).
 
@@ -141,6 +143,8 @@ Custom turbo recordings consist of the following fields:
 
 Tload uses constant rate sampling to read data, implementing a circular buffer to decouple realtime sampling from actual data processing and loader state management. Sampling happens at the horizontal line rate (57 single clock cycles).
 
+Tload (in fact every utilities in this package) works both in PAL and NTSC (also PAL-N). Data recordings produced on PAL / NTSC / PAL-N machines slightly vary in speed, due to the slightly different base clock frequency of the machines (...but this is way within tolerances otherwise imposed by varying datassette motor speeds.) _Loading_ data on NTSC machines can be tight (see, 50 less vertical border lines per frame).
+
 Tload currently implements the following "external" state identifiers (as exported in `tstat_e` a.k.a $d0 by default):
 
 ```
@@ -167,8 +171,6 @@ Additionally, the internal states implemented by the code (as found in `tstat` a
 ;b7	0 --> raw, 1--> GCR
 ```
 Tload runs off Timer 1's IRQ's, and it frequently clears Timer 3's IRQ's as a sideeffect of the code (Timer 3 itself is not affected). The raster registers and Timer 2 are free to play with by user code. (Of course, changing the IRQ enable masks is highly discouraged.)
-
-TBD NTSC compatibility
 
 TBD reducing CPU consumption
 

@@ -245,9 +245,6 @@ tblkout
 	dec $ff09
 
 	ldy #$05		; $0500*2 lead quintuples
-;	bit $ad
-;	bpl .l0
-;	ldy #$02		; except for regular files
 .l0	jsr .writelead
 
 	lda #%11110
