@@ -1,21 +1,21 @@
 ; This file that holds tload's variable and parameter definitions.
 
+; Set start and BSS address for standalone tload module here
 	IFCONST mod_tload	; if we're building standalone tload
 		SEG text
 		ORG $f800
 TLOAD_BSS 	SET $f400	; has to be $100-aligned
 	ENDIF
 
-	IFNCONST TLOAD_BSS	; set default BSS segment address
-TLOAD_BSS 	SET $f400
-	ENDIF
+; Trigger a bit of debug code to be assembled in tload
+;mod_tloadtest	SET 1
 
-; You can modify the BSS segment and variable locations according to
+; You can modify the variable and BSS segment locations according to
 ; your prod's memory allocation requirements.
 
-; The BSS segment's data needs to persist from the point of calling
-; tload_init to calling tload_stop (but can be discarded of otherwise).
-; BSS currently takes ~$380 bytes.
+; The BSS segment needs to persist from the point of calling
+; tload_init up to calling tload_stop (and can be discarded of
+; otherwise). BSS currently takes ~$380 bytes.
 
 ;!!! Warning !!!:
 ; Make sure to copy over values produced by the bootstrap loader in
@@ -46,4 +46,9 @@ ytmp	EQU $dc			; Y temp
 stmp	EQU $dd			; sample temp
 tbase	EQU $e6			; timebase
 tsym	EQU $e7			; timebase rising edge (a)symmetry
+
+; bit of administration
+	IFNCONST TLOAD_BSS	; set default BSS segment address
+TLOAD_BSS 	SET $f400	; if not set yet.
+	ENDIF
 

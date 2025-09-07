@@ -289,14 +289,14 @@ tload_stop
 	adc cacc
 	bcc .process
 
-.tp0	lda .ctabr,y
+.tp0	ldy stmp
+	sty ytmp
+	lda .ctabr,y
 	adc cacc
 	sta cacc
 	bpl .prend
 	lda #$0f
-	sta cacc
-	tya
-	bcc .process1
+	bcc .process2
 
 .prend	ldy rcsr
 	iny
