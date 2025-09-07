@@ -41,10 +41,15 @@ echo "Building V$TAG in $YEAR"
 TAG=${TAG^^}
 
 # Workaround --> https://github.com/dasm-assembler/dasm/issues/156
-echo -e "REL_T\tSET \"$TAG\"" > ver.lst
+echo -e "REL_T\tSET \"$TAG\"" > ver.inc
 
 #DAOPTS="-f1 -v0 -DREL_Y=$YEAR -DREL_T=\"$TAG\""
 DAOPTS="-f1 -v0 -DREL_Y=$YEAR"
+
+# "Patch" - create tloadcfg.asm symlink if the file doesn't exist
+if [ ! -e tloadcfg.inc ]; then
+  ln -s tloadcfg.inc.template tloadcfg.inc
+fi
 
 for FILENAME in $FILES; do
   echo "Assembling $FILENAME"

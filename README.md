@@ -26,9 +26,9 @@ To build the binaries, you'll need a Posix compatible environment, bash, and [da
 This is a standalone utility in the form of a classic "tape turbo". When you run the utility, the code is relocated to the system variable and screen memory area, leaving Basic
 memory free.
 
-The code hooks the Kernal Save vector chain, and listens to device #7 (as usual).
+The code hooks into the Kernal Save vector chain, and listens on device #7 (as usual).
 
-Data can be recorded either in a "bootstrapped", or a "standalone" turbo mode. A "bootstrapped" recording consists of a standard Kernal header + a polling mode custom tape loader + the payload in the custom turbo format (similarly to standard turbo schemas known on the Plus/4). The "standalone" recording consists of a single custom turbo recording with a header. (Moral of the story: you'll probably want one single "bootstrapped" recording to bootstrap your product, and further "standalone" recordings to contain parts of your multi-load product, all of them loaded by the embedded tload routine later on.)
+Data can be recorded either in a "bootstrapped", or a "standalone" turbo mode. A "bootstrapped" recording consists of a standard Kernal header + a polling mode custom tape loader + the payload in the custom turbo format (similarly to standard turbo schemas known on the Plus/4). The "standalone" recording consists of a single custom turbo recording with a header. (Moral of the story: you'll usually want one single "bootstrapped" recording to bootstrap your product, and further "standalone" recordings to contain parts of your multi-load product, all of them loaded by the embedded tload routine later on.)
 
 To save files, you can use the usual notations, like
 
@@ -71,43 +71,47 @@ See: How to integrate tload into the product
 
 ### Bootstrap
 
-Every release recordings are likely supposed to start with bootstrapping.
+Every release recordings are supposed to start with "bootstrapping".
 
-A bootstrap should probably
+A bootstrap is
 
-* be recorded in bootstrapping mode, so that this first part can be loaded using the bare Basic Load command and Kernal.
-* contain at least the tload routine and some setup code to load further parts of the product (already with open screen / in IRQ mode, and custom turbo format), plus optionally anything that is already supposed to run during the very first open-screen loading part.
+* recorded in bootstrap mode, so that this (very first) part can be loaded by stock Basic's Load command.
+* contain at least the tload routine, plus setup code to trigger the loading in of further part(s) of the product (now on open screen / in IRQ mode), plus optionally anything audiovisual, supposed to run during the first open screen loading part.
 
-(A compromise is likely to be made between initial / closed screen loading time, and the level of available graphic / sound at the time the IRQ loader can take over.)
+(A compromise is likely to be made in the bootstrap part between initial / polling mode loading time, vs. the level of available graphic / sound / anything at the time the product's custom code takes over. Theoretically, custom code may also track the ongoing progress of the loading of further data, and make use of it "on the fly" just as it becomes available.)
 
 ### Integrating tload as a binary.
 
-First, build the tload utility binary (say, `build.sh tload.asm`).
+Review tload's [configuration file template](tloadcfg.inc.template) for options, addresses, and zeropage locations - and their defaults. You can customize these options by copying the template file to ``tloadcfg.inc`` in the source directory root, and override the defined values according to your specific requirements. (Git / the build won't overwrite your customized config later on.)
 
-By default, tload assembles to run at $f800, with an additional BSS segment (scratch data) to reside at $f400. It also uses several zeropage locations from $d0-$e7, and a few more Basic and standard Kernal Load variables. You might want to review [tload.asm](tload.asm) for these. (You may likely override these locations according to your specific requirements.)
+Build the tload utility binary (say, `build.sh tload.asm`).
 
-Link the binary into your bootstrap code file as a binary blob, and make sure it is populated to place by this part of code.
+By default, tload assembles to $f800, with an additional BSS segment (scratch data) to reside at $f400. It also uses several zeropage locations from $d0-$e7, and a few more Basic and standard Kernal Load variables (see [tloadcfg.inc.template](tloadcfg.inc.template) ). Assembled code size is around 1K, BSS data is around $380 bytes.
 
-Then, to effectively load a custom turbo file using tload:
+Link the binary into your bootstrap code file as a binary blob, and/or make sure that the bootstrap puts it into place.
 
-* call `tload_init` - the first entrypoint. This routine merely sets up data, so, at this point, your own code's IRQ routine may still be active without problems. Setup may take a few frames here.
-* one important note for `tload_init`: you must preserve the `tbase` and `tsym` zeropage variables (default: $e6 and $e7) as they had been set up by the polling loader - since, tload_init uses these measurement values to calculate timings.
-* call `tload_start` with filename start address in X/Y, and filename length in A. IRQ may be enabled (in any case, the init routine will disable IRQ's for some time, and set up it's own IRQ masks and handler). **A bit of warning** regarding file name: the routine is strict in the meaning of only ever loading files with correctly (and in-full) specified file names. Files **are** identified by filenames. No lazy specification and wildcards are implemented.
+To effectively load a custom turbo file using tload from your code:
+
+* call `tload_init` - the first entrypoint. This routine merely sets up data tables - so, at this point, your own code's IRQ routine may be active without problems. Setup may take a few frames of time.
+* make sure not to overwrite the BSS segment's data tables until data loading concludes (i.e. until you call `tload_stop` ).
+* another important note for `tload_init`: you must preserve (or, supply: backup / restore), the `tbase` and `tsym` zeropage variables (default: $e6 and $e7) the way they have been set up by the bootstrap polling loader - since, tload_init uses these measurement results to calculate timings.
+* call `tload_start` with filename start address in X/Y, and filename length in A. IRQ may be enabled (in any case, the init routine will disable IRQ's for some time, and set up it's own IRQ masks and handler). **A bit of warning** regarding file name: the routine is strict in the meaning of only loading files with correctly (and in-full) specified file names. Files **are** identified by filenames, no lazy specification and wildcards are implemented.
 * during loading, sync your own running code, for example, by setting up $ff0a/$ff0b to some particular rasterline, and then polling bit 1 of $ff09 for triggers (then ACKing it by writing $02 to $ff09). Tload's code doesn't touch raster interrupt registers and IRQ masks during operation.
+* be careful with modifying $ff06 during loading. Especially never close the screen (bit 4) or modify the vertical smooth scroll bits (bits 0..2).
 * poll `tstat_e` (default: $d0) for loader state changes. See state identifiers at Technical Data / tload.
 * additionally, you may (but don't have to) poll `tstat` (default: $d1) for more detailed state changes.
 * Once `tstat_e` ends up in the ready state ($03), you can conclude the loading part.
 * The ST variable ($90 by default) will tell if loading was a success (=0) or failed checksum (!=0).
 * call `tload_stop`. This routine restores your original IRQ vector and IRQ masks (as found at the time of calling tload_start).
+* If load turns out to be unsuccessful (ST is nonzero), you may instruct the user to stop the datassette, and rewind the tape to, say, location X - and attempt to start over by setting up tload's `tload_start` entrypoint again.
+
+A bit of warning - as you'll soon find out, currently, the loader's CPU consumption is rather huge.
 
 ### Integrating tload as a source.
 
 You can also include the tload.asm file directly as a source file. That of course implies that your own code is already in dasm format. Review the address setups in the first part of tload.asm, so that code pieces would fall into the right place in assembly time. Keep attention that tload.asm references a list file normally set up by the build.sh script (a file that holds the current version string).
 
 You may also find clues (for both this and the previous part) by reviewing [tloadtest.asm](tloadtest.asm) (which is currently rather just a stub unfortunately, but is already functional).
-
-A bit of warning - as you'll soon find out, currently, the loader's CPU consumption is rather huge.
-
 
 ## Technical data
 
@@ -162,7 +166,7 @@ Additionally, the internal states implemented by the code (as found in `tstat` a
 
 ;b7	0 --> raw, 1--> GCR
 ```
-
+Tload runs off Timer 1's IRQ's, and it frequently clears Timer 3's IRQ's as a sideeffect of the code (Timer 3 itself is not affected). The raster registers and Timer 2 are free to play with by user code. (Of course, changing the IRQ enable masks is highly discouraged.)
 
 TBD NTSC compatibility
 
