@@ -1,0 +1,49 @@
+; This file that holds tload's variable and parameter definitions.
+
+	IFCONST mod_tload	; if we're building standalone tload
+		SEG text
+		ORG $f800
+TLOAD_BSS 	SET $f400	; has to be $100-aligned
+	ENDIF
+
+	IFNCONST TLOAD_BSS	; set default BSS segment address
+TLOAD_BSS 	SET $f400
+	ENDIF
+
+; You can modify the BSS segment and variable locations according to
+; your prod's memory allocation requirements.
+
+; The BSS segment's data needs to persist from the point of calling
+; tload_init to calling tload_stop (but can be discarded of otherwise).
+; BSS currently takes ~$380 bytes.
+
+;!!! Warning !!!:
+; Make sure to copy over values produced by the bootstrap loader in
+; tbase ($e6) and tsym ($e7), in case you need to relocate these
+; variables.
+
+; sourced from standard Kernal variable definitions
+VARTAB	EQU $2d			; 4 bytes
+ST	EQU $90
+FNLEN	EQU $ab
+FNADR	EQU $af			; 2 bytes
+CHKSUM	EQU $f5
+
+; custom variables
+tstat_e	EQU $d0			; load state (external)
+tstat	EQU $d1			; load state (internal)
+xstor	EQU $d2			; x register storage
+ystor	EQU $d3			; y register storage
+sacc	EQU $d4			; serial accu (live)
+pacc	EQU $d5			; process accu
+gacc	EQU $d6			; GCR accu
+tcnt	EQU $d7			; temporary and raw bit counter
+polar	EQU $d8			; edge polarity that we're finding
+cacc	EQU $d9			; counter accu
+pstat	EQU $da			; processing status
+rcsr	EQU $db			; read cursor
+ytmp	EQU $dc			; Y temp
+stmp	EQU $dd			; sample temp
+tbase	EQU $e6			; timebase
+tsym	EQU $e7			; timebase rising edge (a)symmetry
+

@@ -1,24 +1,10 @@
 	PROCESSOR 6502
 
-	IFCONST mod_tload	; if we're building standalone tload
-	SEG text
-	ORG $f800
-TLOAD_BSS 	SET $f400	; has to be $100-aligned
-	ENDIF
-
-	IFNCONST TLOAD_BSS
-TLOAD_BSS 	SET $1800	; has to be $100-aligned
-	ENDIF
+	INCLUDE "tloadcfg.inc"	; defs and vars
 
 ; Workaround for dasm's IFCONST bug
 REL_T	SET "N/A"
-	INCLUDE "ver.lst"
-
-VARTAB	EQU $2d
-ST	EQU $90
-FNLEN	EQU $ab
-FNADR	EQU $af
-CHKSUM	EQU $f5
+	INCLUDE "ver.inc"
 
 	SUBROUTINE
 
@@ -31,27 +17,7 @@ CHKSUM	EQU $f5
 .quant	DS $20			; quantization tables
 .restor DS 3			; irq restore temp
 .tbuf	DS 1+16+4		; block type, filename, start/end
-
 	SEG text
-
-tstat_e	EQU $d0			; load state (external)
-tstat	EQU $d1			; load state (internal)
-xstor	EQU $d2			; x register storage
-ystor	EQU $d3			; y register storage
-sacc	EQU $d4			; serial accu (live)
-pacc	EQU $d5			; process accu
-;pac2	EQU $d6			; process accu 2
-gacc	EQU $d7			; GCR accu
-tcnt	EQU $d8			; temporary and raw bit counter
-polar	EQU $d9			; edge polarity that we're finding
-cacc	EQU $da			; counter accu
-pstat	EQU $db			; processing status
-rcsr	EQU $dc			; read cursor
-ytmp	EQU $dd			; Y temp
-stmp	EQU $de			; sample temp
-tbase	EQU $e6			; timebase
-tsym	EQU $e7			; timebase rising edge (a)symmetry
-
 
 ; tstat
 ;00	waiting for datasette play button to be pressed
@@ -124,8 +90,6 @@ tload_stop
 	ldx #>.tload_irq
 	sta $fffe
 	stx $ffff
-	lda #$1b
-	sta $ff06
 	jsr .settimers
 	lda #$08
 	sta $ff0a
@@ -628,11 +592,11 @@ tload_stop
 ; %00001001	1
 
 
-.thr	EQU $d0			; threshold
-.val	EQU $d1			; value
-.xstor	EQU $d3			; x temp store
-.ttmp	EQU $d4			; temp reg
-.rem	EQU $d5			; temp remainder
+.thr	EQU tstat_e		; threshold
+.val	EQU tstat		; value
+.xstor	EQU xstor		; x temp store
+.ttmp	EQU ystor		; temp reg
+.rem	EQU sacc		; temp remainder
 
 	lda #0
 	tax
@@ -700,10 +664,10 @@ tload_stop
 	sta .ctabl+$ff
 
 .qtabgen
-.al	EQU $d0			; accumulator
-.ah	EQU $d1
-.cl	EQU $d2			; compare value
-.ch	EQU $d3
+.al	EQU tstat_e		; accumulator
+.ah	EQU tstat
+.cl	EQU xstor		; compare value
+.ch	EQU ystor
 
 	ldx #0
 	clc
@@ -819,18 +783,3 @@ tload_stop
 	DC.B $0d		; $1d %11101
 	DC.B $0e		; $1e %11110
 	DC.B $ff
-
-/*
-.ntsctrch			; 8 vs. 6 line correction in NTSC
-	lda sacc		; 3
-	pha			; 3
-	and #%00000011		; 2
-	ora #%00000100		; 2
-	sta sacc		; 3
-	cli			; 2		15
-	pla
-	and #%11111100
-	ora #%00000010
-	sta pacc
-	bcs .nobadline		; number of bits !!!
-*/

@@ -3,12 +3,14 @@
 	SEG text
 	ORG $1001
 
+TLOAD_BSS 	SET $1800	; we explicitly set tload's BSS
+
 CINT	EQU $ff81
 PRIMM	EQU $ff4f
 
 ; Workaround for dasm's IFCONST bug
 REL_T	SET "N/A"
-	INCLUDE "ver.lst"
+	INCLUDE "ver.inc"
 
 	INCLUDE "basicstub.asm"
 	jmp rstart

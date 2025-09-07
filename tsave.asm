@@ -9,7 +9,7 @@ T	EQU $C0			; Nominal T = $C0
 
 ; Workaround for dasm's IFCONST bug
 REL_T	SET "N/A"
-	INCLUDE "ver.lst"
+	INCLUDE "ver.inc"
 
 	SUBROUTINE
 tsinst	lda #<tsave
