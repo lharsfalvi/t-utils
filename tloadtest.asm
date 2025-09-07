@@ -19,8 +19,8 @@ REL_T	SET "N/A"
 rstart	jsr CINT
 	jsr PRIMM
 	DC $0e, $08, $0d
-	DC "Tloadtest",$0d
-	DC "Tload V", REL_T
+	DC "tLOADTEST",$0d
+	DC "tLOAD v", REL_T
 	DC.B 13,0
 
 	lda $e6
