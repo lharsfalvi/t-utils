@@ -1,4 +1,4 @@
-; This file that holds tload's variable and parameter definitions.
+; This file holds tload's variable and parameter definitions.
 
 ; Set start and BSS address for standalone tload module here
 	IFCONST mod_tload	; if we're building standalone tload

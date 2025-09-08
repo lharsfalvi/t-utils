@@ -498,7 +498,9 @@ tload_stop
 ;06	read data
 .s_rdata
 	ldy #0
+	IFNCONST mod_tloadtest	; skip writing to memory if testing
 	sta (VARTAB),y
+	ENDIF
 	eor CHKSUM
 	sta CHKSUM
 	inc VARTAB

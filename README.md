@@ -113,7 +113,7 @@ A bit of warning - as you'll soon find out, currently, the loader's CPU consumpt
 
 You can also include the tload.asm file directly as a source file. That of course implies that your own code is already in dasm format. Review the address setups in the first part of tload.asm, so that code pieces would fall into the right place in assembly time. Keep attention that tload.asm references a list file normally set up by the build.sh script (a file that holds the current version string).
 
-You may also find clues (for both this and the previous part) by reviewing [tloadtest.asm](tloadtest.asm) (which is currently rather just a stub unfortunately, but is already functional).
+You may also find clues (for both this and the previous part) by reviewing [tloadtest.asm](tloadtest.asm).
 
 ## Technical data
 
