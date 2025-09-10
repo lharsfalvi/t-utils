@@ -329,7 +329,7 @@ tload_stop
 	and #$0f
 .process2
 	bit polar
-	bpl .tp1
+	bmi .tp1
 	ora #$10
 .tp1	tay
 	lda .quant,y
