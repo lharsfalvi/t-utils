@@ -2,7 +2,7 @@
 
 # Syntax:
 #
-# ./build.sh			Build all
+# ./build.sh			Build "all" in bundle.
 # ./build.sh clean		Remove files created by build
 # ./build.sh f1.asm f2.asm ..	Assemble specified file(s)
 
@@ -31,19 +31,45 @@ fi
 
 # Get year and version string
 
-YEAR=$(date +"%Y")
-TAG=$(git describe --exact-match --tags 2>/dev/null \
-   || git rev-parse --short HEAD 2>/dev/null \
-   || echo "n/a")
+if git status -s >/dev/null 2>&1; then
+# got git and repo data
+  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+  if [ "$BRANCH" = "master" ]; then
+# on master branch
+    TAG=$(git tag --points-at HEAD)
+    if [ -n "$TAG" ]; then
+# also got a tag attached
+      YEAR=$(git for-each-ref "refs/tags/$TAG" \
+             --format='%(taggerdate:short)' 2>/dev/null | \
+             sed -e 's/\-.*$//' || \
+             git log -1 --format=%ad --date=format:'%Y' "$TAG")
+      VER="$TAG"
+    else
+# commit without tag
+      YEAR=$(git show -s --format=%ad --date=format:'%Y' HEAD)
+      VER=$(git rev-parse --short HEAD)
+    fi
+  else
+# on some other branch
+    YEAR=$(git show -s --format=%ad --date=format:'%Y' HEAD)
+    HASH=$(git rev-parse --short HEAD)
+    VER="${HASH:0:2}${BRANCH:0:6}"
+  fi
+else
+# no git, and/or no repo
+  YEAR=$(date +"%Y")
+  VER="n/a"
+fi
 
-echo "Building V$TAG in $YEAR"
+echo "Building V$VER, year $YEAR"
 
-TAG=${TAG^^}
+# upper case
+VER=${VER^^}
 
 # Workaround --> https://github.com/dasm-assembler/dasm/issues/156
-echo -e "REL_T\tSET \"$TAG\"" > ver.inc
+echo -e "REL_T\tSET \"$VER\"" > ver.inc
 
-#DAOPTS="-f1 -v0 -DREL_Y=$YEAR -DREL_T=\"$TAG\""
+#DAOPTS="-f1 -v0 -DREL_Y=$YEAR -DREL_T=\"$VER\""
 DAOPTS="-f1 -v0 -DREL_Y=$YEAR"
 
 # "Patch" - create tloadcfg.asm symlink if the file doesn't exist
@@ -52,15 +78,20 @@ if [ ! -e tloadcfg.inc ]; then
 fi
 
 for FILENAME in $FILES; do
-  echo "Assembling $FILENAME"
-  FILE="${FILENAME%.*}"
-  if ! dasm "$FILE.asm" \
-	    "-l$FILE.lst" \
-	    "-o$FILE.prg" \
-	    "-Dmod_$FILE" \
-	    "$DAOPTS"
-  then
-    echo 1>&2 "Failed to assemble $FILENAME"
+  if [ -e "$FILENAME" ]; then
+    echo "Assembling $FILENAME"
+    FILE="${FILENAME%.*}"
+    if ! dasm "$FILE.asm" \
+	      "-l$FILE.lst" \
+	      "-o$FILE.prg" \
+	      "-Dmod_$FILE" \
+	      "$DAOPTS"
+    then
+      echo 1>&2 "Failed to assemble $FILENAME"
+      exit 1
+    fi
+  else
+    echo 1>&2 "$FILENAME not found"
     exit 1
   fi
 done
