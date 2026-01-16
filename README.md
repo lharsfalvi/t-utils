@@ -2,6 +2,10 @@
 
 A.k.a. "Tape-Utils".
 
+## Warning
+
+As of 2026.01.16, still everything here is subject to change.
+
 ## Overview
 T-utils is a set of utilities to assist producing cassette tape based software releases for the [Commodore 264 series](https://en.wikipedia.org/wiki/Commodore_Plus/4).
 
@@ -16,10 +20,24 @@ It consists of:
 Use [build.sh](build.sh) from the software bundle.
 
 * `build.sh` - build everything
-* `build.sh somefile.asm` - build somefile.asm
+* `build.sh somefile.asm` - build specific file(s)
 * `build.sh clean` - clean up generated files
+* `build.sh dist` - create source release bundle
+* `build.sh bdist` - create binary release bundle
 
 To build the binaries, you'll need a Posix compatible environment, bash, and [dasm](https://github.com/dasm-assembler/dasm) (V2.0 or above).
+
+Alternatively, you can use the supplied [Dockerfile](Dockerfile) to spin up a [Debian](https://www.debian.org) based build container.
+
+```
+docker build -t tbuild .
+```
+(when executed from the source directory), will build the container image.
+
+```
+docker run -e USER=$(id -u) -e GROUP=$(id -g) -v $(pwd):/build -it --rm tbuild [args]
+```
+spins up a minimal build environment, maps the current working directory as the build directory, and spawns build.sh with the supplied command line arguments.
 
 ## How to use
 
@@ -191,4 +209,4 @@ No releases yet.
 ## History
 ## License
 
-Files in this package are distributed under the Zlib license (see: [LICENSE](LICENSE)), (C) 2024-2025 Levente Hársfalvi
+Files in this package are distributed under the Zlib license (see: [LICENSE](LICENSE)), (C) 2024-2026 Levente Hársfalvi

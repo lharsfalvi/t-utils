@@ -17,8 +17,6 @@ ptr2	EQU $ac
 succ	EQU $9d
 fail	EQU $9e
 
-; Workaround for dasm's IFCONST bug
-REL_T	SET "N/A"
 	INCLUDE "ver.inc"
 
 	INCLUDE "basicstub.asm"
@@ -141,7 +139,7 @@ rstart	jsr CINT
 	jsr PRIMM
 	DC $0e, $08, $0d
 	DC "tLOADTEST",$0d
-	DC "tLOAD v", REL_T
+	DC "tLOAD v", REL_V
 	DC.B $0d,$0d,0
 
 	jsr PRIMM

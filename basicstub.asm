@@ -6,9 +6,7 @@
 ; Stub is generated relative to current TEXT address
 ; Release year i.e. used basic line number can be defined in REL_Y
 
-	IFNCONST REL_Y
-REL_Y	EQU 0
-	ENDIF
+	INCLUDE "ver.inc"
 
 	SUBROUTINE basicstub
 
