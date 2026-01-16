@@ -1,0 +1,54 @@
+FROM debian:11-slim
+
+# Supply your own UID, GID, and workdir, at runtime. See basix ex.
+# (provided that the workdir is the current directory):
+# docker run -e USER=$(id -u) -e GROUP=$(id -g) -v $(pwd):/build -it --rm builder [args]
+
+# Special arg sh, i.e.
+# docker run -e USER=$(id -u) -e GROUP=$(id -g) -v $(pwd):/build -it --rm builder sh
+# drops into the build directory and spawns bash.
+
+# On Windows Docker you might be able to start this up by running this from PowerShell:
+# docker run -v "$pwd:/build" -it --rm builder [args]
+
+ENV LANG=C.UTF-8
+ENV USER=0
+ENV GROUP=0
+
+RUN <<EOF
+set -ex
+sed -i '/.*debian.*main/ s/$/ contrib/' /etc/apt/sources.list
+apt-get update
+DEBIAN_FRONTEND=noninteractive TZ=GMT \
+  apt-get install -y --no-install-recommends \
+    sudo \
+    git \
+    dasm
+apt-get clean
+rm -rf /tmp/* /var/tmp/*
+mkdir -p /build
+cat <<"EOF2" >/dockerentry.sh
+#!/bin/bash
+set -o errexit
+
+groupadd -g $GROUP build
+
+case "$1" in
+    sh)
+	useradd -m -g build -G sudo -s /bin/bash -u $USER build
+	echo '%sudo   ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/sudo
+	cd /build
+	su build
+    ;;
+    *)
+	useradd -m -g build -s /bin/bash -u $USER build
+	cd /build
+	sudo -u build ./build.sh "$@"
+    ;;
+esac
+EOF2
+
+chmod a+x /dockerentry.sh
+EOF
+
+ENTRYPOINT ["/dockerentry.sh"]

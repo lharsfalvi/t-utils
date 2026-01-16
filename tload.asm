@@ -2,8 +2,6 @@
 
 	INCLUDE "tloadcfg.inc"	; defs and vars
 
-; Workaround for dasm's IFCONST bug
-REL_T	SET "N/A"
 	INCLUDE "ver.inc"
 
 	SUBROUTINE
@@ -51,7 +49,7 @@ tload_start
 tload_stop
 	jmp .tload_stop
 ; Version string
-	DC "V", REL_T
+	DC "V", REL_V
 
 ; filename length in A, pointer in X/Y
 .tload_start
