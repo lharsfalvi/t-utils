@@ -21,6 +21,7 @@ LICENSE
 README.md
 ver.inc
 build.sh
+Dockerfile
 *.template
 basicstub.asm
 tload.asm
