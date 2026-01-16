@@ -135,7 +135,7 @@ dist () {
   out_ver_inc
   archfile="t-utils-$VER.tar.gz"
   echo 1>&2 "Building source release dist archive $archfile"
-  tar -czf "$archfile" $SRFILES
+  tar --owner=root --group=root -czf "$archfile" $SRFILES
 }
 
 # Create binary release tarball
@@ -146,7 +146,7 @@ bdist () {
   build "$BFILES"
   archfile="t-utils-bin-$VER.tar.gz"
   echo 1>&2 "Building binary release dist archive $archfile"
-  tar -czf "$archfile" $BRFILES
+  tar --owner=root --group=root -czf "$archfile" $BRFILES
 }
 
 

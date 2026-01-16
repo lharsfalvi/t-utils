@@ -2,5 +2,6 @@
 *.prg
 *.inc
 *.geany
+*.gz
 tmp
 aux

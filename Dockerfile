@@ -1,4 +1,4 @@
-FROM debian:11-slim
+FROM debian:12-slim
 
 # Supply your own UID, GID, and workdir, at runtime. See basix ex.
 # (provided that the workdir is the current directory):
@@ -17,7 +17,6 @@ ENV GROUP=0
 
 RUN <<EOF
 set -ex
-sed -i '/.*debian.*main/ s/$/ contrib/' /etc/apt/sources.list
 apt-get update
 DEBIAN_FRONTEND=noninteractive TZ=GMT \
   apt-get install -y --no-install-recommends \
