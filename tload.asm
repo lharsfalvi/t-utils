@@ -1,13 +1,14 @@
 	PROCESSOR 6502
 
+	INCLUDE "tutilscfg.inc"	; global defs
 	INCLUDE "tloadcfg.inc"	; defs and vars
-
 	INCLUDE "ver.inc"
 
 	SUBROUTINE
 
 	SEG.U bss
 	ORG TLOAD_BSS
+
 .ctabl	DS $100			; runlen
 .ctabj	DS $100			; jump next
 .ctabr	DS $100			; remaining last
@@ -16,6 +17,11 @@
 .restor DS 3			; irq restore temp
 .tbuf	DS 1+16+4		; block type, filename, start/end
 	SEG text
+
+	IFCONST mod_tload	; if we're building standalone tload
+	ORG TLOAD_TEXT-2	; put down file load address word
+	DC.W *+2
+	ENDIF
 
 ; tstat
 ;00	waiting for datasette play button to be pressed

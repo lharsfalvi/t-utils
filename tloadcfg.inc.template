@@ -3,11 +3,11 @@
 ; Set start and BSS address for standalone tload module here
 	IFCONST mod_tload	; if we're building standalone tload
 		SEG text
-		ORG $f800
+TLOAD_TEXT	SET $f800	; tload code start
 TLOAD_BSS 	SET $f400	; has to be $100-aligned
 	ENDIF
 
-; Trigger a bit of debug code to be assembled in tload
+; Artifically trigger a bit of debug code to be assembled in tload
 ;mod_tloadtest	SET 1
 
 ; You can modify the variable and BSS segment locations according to

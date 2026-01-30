@@ -1,0 +1,4 @@
+; This file holds t-utils' global / static parameter definitions.
+
+T	SET $C0			; Nominal T = $C0
+ENC	SET "GCR"		; GCR or PLE

@@ -10,6 +10,9 @@
 
 	SUBROUTINE basicstub
 
+	ORG *-2
+	DC.W *+2
+
 .ra	SET * + 8 + 1				; precalc length hack
 	IF .ra >=10				; to avoid multiple
 .ra	SET .ra +1				; assembly passes
