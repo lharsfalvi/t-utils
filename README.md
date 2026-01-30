@@ -4,7 +4,7 @@ A.k.a. "Tape-Utils".
 
 ## Warning
 
-As of 2026.01.16, still everything here is subject to change.
+As of 2026.01.30, still everything is subject to change.
 
 ## Overview
 T-utils is a set of utilities to assist producing cassette tape based software releases for the [Commodore 264 series](https://en.wikipedia.org/wiki/Commodore_Plus/4).

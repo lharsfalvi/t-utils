@@ -17,6 +17,7 @@ ptr2	EQU $ac
 succ	EQU $9d
 fail	EQU $9e
 
+	INCLUDE "tutilscfg.inc"	; global defs
 	INCLUDE "ver.inc"
 
 	INCLUDE "basicstub.asm"

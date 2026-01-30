@@ -13,6 +13,7 @@ read -r -d '' BFILES <<'EOF'
 tsave.asm
 tload.asm
 tloadtest.asm
+bootstrapmod.asm
 EOF
 
 # Files to be included in the source release archive
@@ -27,6 +28,8 @@ basicstub.asm
 tload.asm
 tloadtest.asm
 tsave.asm
+bootstrap.asm
+bootstrapmod.asm
 EOF
 
 # Files to be included in the binary release archive
@@ -34,11 +37,13 @@ read -r -d '' BRFILES <<'EOF'
 LICENSE
 README.md
 ver.inc
-*.prg
+tsave.prg
+tload.prg
+tloadtest.prg
 EOF
 
 # Dasm command line options
-DAOPTS="-f1 -v0"
+DAOPTS="-f3 -v0"
 
 # Version and year defaults
 VER="?.?"
@@ -80,14 +85,19 @@ get_ver_year () {
 # Clean build directory
 clean () {
   rm -f *.prg *.lst *.tar.gz
+  for I in *.inc; do
+    if [ -L "$I" ]; then
+      rm -f "$I";
+    fi
+  done
 }
 
 # Build
 build () {
 
   local files="$1"
-  local filename
   local file
+  local filename
 
 # Need Dasm 2+
   if ! dasm | head -1 | grep -q '^DASM 2\.'; then
@@ -100,10 +110,13 @@ build () {
   out_ver_inc
   echo 1>&2 "Building V$VER, year $YEAR"
 
-# Need tloadcfg.asm symlink if the file doesn't exist
-  if [ ! -e tloadcfg.inc ]; then
-    ln -s tloadcfg.inc.template tloadcfg.inc
-  fi
+# Need inc file symlinks if inc files don't exist
+  for filename in *.template; do
+    file="${filename%.*}"
+    if [ ! -e "$file" ]; then
+      ln -s "$filename" "$file"
+    fi
+  done
 
   for filename in $files; do
     if [ -e "$filename" ]; then
