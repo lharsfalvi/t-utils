@@ -1,4 +1,61 @@
 ; This file holds t-utils' global / static parameter definitions.
 
-T	SET $C0			; Nominal T = $C0
-ENC	SET "GCR"		; GCR or PLE
+; Mode is either
+; GCR --> Group Code Recording
+; PLE --> Pulse Length Encoding
+;MODE		SET "GCR"
+MODE		SET "PLE"
+
+; Defined --> create regular "duplicate" Kernal file block record
+; None    --> omit first copy
+;PLAYITSAFE	EQU 0
+
+; Defined --> use open screen bootstrap
+; None    --> leave screen closed during bootstrap loading
+; (Only applicable for PLE mode. GCR boot won't work on open screen.)
+OPENSCREEN	EQU 0
+
+; Defined --> stripe border while bootstrap loading
+; None    --> no border striping
+BORDER_STR	EQU 0
+
+; Defined --> eor stripes
+; None    --> adc stripes
+BORDER_EOR	EQU 0
+
+; Border colour mod value for striping
+;BORDER_MOD	EQU $38			; add, Axon style
+;BORDER_MOD	EQU $10			; add, HER style
+;BORDER_MOD	EQU $7f			; eor, Novaload style
+BORDER_MOD	EQU $41			; eor, HER Copy style
+
+; Defined --> increment border colour by each page loaded
+; None    --> don't
+
+BORDER_INC	EQU 0
+
+; Border colour reset value (when bootstrap loading concludes)
+BORDER_RES	EQU $ee
+
+
+; Timer is the time base to use. Nominal values:
+; GCR --> $c0 (which is also one bit time)
+; PLE --> $70 (*2 --> bit 0, *2*2 --> bit 1)
+
+	IF MODE=="GCR"
+M_GCR		EQU 0
+T		SET $C0
+	ENDIF
+
+	IF MODE=="PLE"
+M_PLE		EQU 0
+T		SET $70
+	ENDIF
+
+B1S		EQU $0333
+B1E		EQU $03f2
+B2S		EQU $0324
+B2E		EQU $0326
+B3S		EQU $0609
+
+;B3E is calculated at assembly time (see bootstrap.asm).

@@ -84,7 +84,7 @@ get_ver_year () {
 
 # Clean build directory
 clean () {
-  rm -f *.prg *.lst *.tar.gz
+  rm -f *.prg *.lst *.sym *.tar.gz
   for I in *.inc; do
     if [ -L "$I" ]; then
       rm -f "$I";
@@ -125,6 +125,7 @@ build () {
       if ! dasm "$file.asm" \
 		"-l$file.lst" \
 		"-o$file.prg" \
+		"-s$file.sym" \
 		"-Dmod_$file" \
 		"$DAOPTS"
       then

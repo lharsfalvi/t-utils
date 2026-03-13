@@ -35,13 +35,19 @@ tsinst	lda #<tsave
 	cpx #<res2_e
 	bne .l2
 
-	ldx #$0f
+	IF (res1_e-res1_s) > (res2_e-res2_s)
+.ws	SET (res1_e-res1_s+39)/40
+	ELSE
+.ws	SET (res2_e-res2_s+39)/40
+	ENDIF
+
+	ldx #.ws
 	ldy #0
 	clc
-	jsr $fff0
+	jsr $fff0			; PLOT, set cursor pos
 	jsr $ff4f
 	DC.B $1b, $54
-	DC  "T-SAVE V", REL_V
+	DC  "T-SAVE ", MODE, " V", REL_V
 	DC.B 13,0
 	rts
 
@@ -86,16 +92,16 @@ tsave	ldx $ae			; FA; current device number
 	bcs .t2
 	sta $ab	
 .t2	lda $b2
-	sta blstal+2
+	sta blstal+3
 	sta b_fsta
 	lda $b3
-	sta blstah+2
+	sta blstah+3
 	sta b_fsta+1
 	lda $9d
-	sta blendl+2
+	sta blendl+3
 	sta b_fend
 	lda $9e
-	sta blendh+2
+	sta blendh+3
 	sta b_fend+1
 
 	lda #$af
@@ -121,17 +127,36 @@ tsave	ldx $ae			; FA; current device number
 	bit $ad
 	bmi .nobootstrap
 
-	ldx #0
+	ldx #$00
+.t8	stx $b1			; misusing $b1 as counter
+
+	IFCONST PLAYITSAFE	; use two normal blocks
+	lda #$80
+	sta $f7			; first copy
 	jsr loadblockparams
+	sec
+	jsr sblkout
+	ldx $b1
+	ENDIF
+
+	lda #0
+	sta $f7			; second copy
+	jsr loadblockparams
+	IFCONST PLAYITSAFE
+	clc
+	ELSE
+	sec
+	ENDIF
 	jsr sblkout
 
-	ldx #1
-	jsr loadblockparams
-	jsr sblkout
+	ldx $b1
+	inx
+	cpx #$03
+	bne .t8
 
 .nobootstrap
 
-	ldx #2
+	ldx #3
 	jsr loadblockparams
 	jsr tblkout
 
@@ -144,7 +169,6 @@ tsave	ldx $ae			; FA; current device number
 	sta $90			; ST
 	clc
 	rts
-
 
 ; sblkout
 ; Write out standard tape block (single / second run)
@@ -164,12 +188,14 @@ sblkout	tsx
 	ora #$02
 	sta $01			; CST WRT = 1
 	jsr $e452		; pulse = #$d0
-	ldy #$02
-	sty $ff03		; kick timer 2
-	lda #$10
-	sta $ff09		; clear pending T2 interrupts
 	ldx #$fe
+	ldy #$01
+	sty $ff03		; kick timer 2
+	dec $ff09		; clear pending interrupts
 	lda $f8			; TYPE != 0 --> head block
+	bcc .l1			; short lead-in on second run
+	iny
+	lda $f8
 	beq .l1
 	ldy #$20
 .l1	jsr $e413		; write out one pulse
@@ -179,6 +205,7 @@ sblkout	tsx
 	bne .l1
 	ldy #$09
 .l2	tya
+	ora $f7
 	jsr $e48c		; write out one byte
 	dey			; 9, 8, 7, ..., 1
 	bne .l2			; until 0
@@ -209,15 +236,14 @@ sblkout	tsx
 	jsr $e45d		; Set up pulse = 01a4
 	jsr $e413		; Write out pulse
 	jsr $e452		; Set up pulse = 00d0
-	ldy #$01
 	ldx #$c2
 .l5	jsr $e413		; Write out $00c2 pulses
 	dex
 	bne .l5
-	dey
-	bne .l5
-	ldx #3
+	bit $f7
+	bmi .l6
 
+	ldx #3
 delay	ldy #$40
 	tya
 	sec
@@ -227,7 +253,7 @@ delay	ldy #$40
 	bne .d1
 	dex
 	bne .d1
-	rts
+.l6	rts
 
 tblkout
 	SUBROUTINE
@@ -235,39 +261,55 @@ tblkout
 .l1	cmp $ff1d
 	bne .l1
 
+	IFCONST M_GCR
 	lda #T
 	sta $ff00
 	lda #0
 	sta $ff01
+	ENDIF
+	IFCONST M_PLE
+	lda #$ff
+	sta $ff02
+	sta $ff03
+	ENDIF
 	dec $ff09
 
-	ldy #$05		; $0500*2 lead quintuples
-.l0	jsr .writelead
+	lda #$05		; $0500*2 lead quintuples
+	jsr .writelead
 
+	IFCONST M_GCR		; lead-in end in GCR mode
 	lda #%11110
 	jsr .writegcrquintuple	; $eee
 	lda #$ee		; a.k.a
-	jsr .writegcrbyte	; %111101111011110
+	jsr .writecbyte	; %111101111011110
+	ENDIF
+
+	IFCONST M_PLE		; lead-in end in PLE mode
+	lda #$fe
+	jsr .writecbyte
+	lda #$ee
+	jsr .writecbyte
+	ENDIF
 
 	lda #0
 	bit $ad
 	bpl .l01
 	lda #1
-.l01	jsr .writegcrbyte	; block type
+.l01	jsr .writecbyte	; block type
 
 	bit $ad
 	bpl .l02
 
 	ldy #0			; filename
 .l6	lda fnam,y
-	jsr .writegcrbyte
+	jsr .writecbyte
 	iny
 	cpy #$10
 	bne .l6
 
 	ldy #0			; start/end addr
 .l5	lda $00ba,y
-	jsr .writegcrbyte
+	jsr .writecbyte
 	iny
 	cpy #4
 	bne .l5
@@ -283,7 +325,7 @@ tblkout
 	eor $f5
 	sta $f5
 	txa
-	jsr .writegcrbyte
+	jsr .writecbyte
 
 	inc $ba
 	bne .l4
@@ -295,11 +337,14 @@ tblkout
 	bcc .l3
 
 	lda $f5
-	jsr .writegcrbyte
+	jsr .writecbyte
 
-	ldy #$01		; $0100*2 lead-out quintuples
+	lda #$01		; $0100*2 lead-out quintuples
 	jmp .writelead
 
+
+
+	IFCONST M_GCR		; GCR low level
 
 ; Write out one pulse from C.
 ; C=0 --> wait until T1 expires
@@ -333,7 +378,7 @@ tblkout
 	pla
 	rts
 
-.writegcrbyte
+.writecbyte
 	pha
 	lsr
 	lsr
@@ -361,9 +406,8 @@ tblkout
 
 .writelead
 ; write out:
-; ((Y-1)*256) *2 lead quintuples (%11111)
+; ((Y*2-1)*256)+Y*2-1 lead quintuples (%11111)
 
-	tya
 	asl
 	tay
 	sta $90
@@ -393,6 +437,72 @@ bintogcr
 	DC.B %11110		; E
 	DC.B %10101		; F
 
+	ENDIF
+
+	IFCONST M_PLE
+
+; Bit to be written in C
+.writepulse
+	ldy #T-39
+	bcs .wp1
+	ldy #(T*2)-39
+.wp1	ldx #$80
+
+.wrhalf	lda #$10
+	sta $ff09
+	asl $ff13
+.wp2	bit $ff09
+	beq .wp2
+	lda $ff02
+	eor #$ff
+	sbc #$06
+	sta .wp3
+.wp3	EQU *+1
+	bcs .wp3
+	lda #$a9
+	lda #$a9
+	lda #$a5
+	nop
+	stx $01
+	sty $ff02
+	lda #0
+	sta $ff03
+	ror $ff13
+	stx $ff19
+	dex
+	bpl .wp4
+	rts
+.wp4	ldx #$c2
+	bne .wrhalf
+	
+.writecbyte
+	sty $a8			; push y
+	sec
+	rol
+	sta $a7			; byte to be written out
+.wc1	jsr .writepulse
+	asl $a7
+	bne .wc1
+	ldy $a8			; pull y
+	rts
+
+.writelead
+	sta $90
+	asl
+	asl
+	adc $90			; *10
+	sta $90
+	lda #0
+	sta $a7
+.wl1	sec
+	jsr .writepulse		; write "1"
+	dec $a7
+	bne .wl1		; * 256
+	dec $90
+	bne .wl1		; *(Y*10-1)
+	rts
+
+	ENDIF
 
 	SUBROUTINE
 loadblockparams
@@ -409,27 +519,32 @@ loadblockparams
 	rts
 
 ; block tabs
-; tape buffer (stage 1, standard)
-; custom bootstrap at $0200 (stage 2, standard)
-; user payload (part 3, custom)
-; block type, (real) start, (real) end
+; tape buffer (part 1, standard)
+; IBSOUT vector at $0324 (part 2, standard)
+; custom bootstrap code at $0609 (part 3, standard)
+; user payload (part 4, custom)
+; block type, content start, content end
 
-bltyp	DC.B 3, 0, 1
+bltyp	DC.B 3, 0, 0, 1
 
 blstal	DC.B <bootstrap_1_start
 	DC.B <bootstrap_2_start
+	DC.B <bootstrap_3_start
 	DC.B 0
 
 blstah	DC.B >bootstrap_1_start
 	DC.B >bootstrap_2_start
+	DC.B >bootstrap_3_start
 	DC.B 0
 
 blendl	DC.B <bootstrap_1_end
 	DC.B <bootstrap_2_end
+	DC.B <bootstrap_3_end
 	DC.B 0
 
 blendh	DC.B >bootstrap_1_end
 	DC.B >bootstrap_2_end
+	DC.B >bootstrap_3_end
 	DC.B 0
 
 	REND
@@ -444,42 +559,54 @@ bootstrap_1_start
 fnam	EQU *+4
 	REND
 
-	RORG $0333
-; part 1
+; pull in part 1
+	RORG B1S		; $0333
 BOOT	SET 1			; select part to be assembled in
 	INCLUDE "bootstrap.asm"
-
 	REND
 
 	RORG *-res2_s+$0c00
 bootstrap_1_end
 b_fsta	EQU *-4
 b_fend	EQU *-2
-
-; bootstrap code, part 2
-; loads to $0200+...
-; code derives timebase and polarity asymmetry factors
-; and loads "part 3"
-; which is user supplied data
-
-bootstrap_2_start
-	REND
-
-	RORG $0200
-bootstrap_2_rstart
-
-; should include part 2 here
-BOOT	SET 2			; select part to be assembled in
-	INCLUDE "bootstrap.asm"
-
-bootstrap_2_rend
 	REND
 
 	RORG *-res2_s+$0c00
+bootstrap_2_start
+	REND
+	
+	RORG B2S		; $0324
+; pull in part 2
+BOOT	SET 2			; select part to be assembled in
+	INCLUDE "bootstrap.asm"
+	REND
+	
+	RORG *-res2_s+$0c00
 bootstrap_2_end
 	REND
+	
+; bootstrap code, part 3
+; loads to $0609+...
+; code derives timebase and polarity asymmetry factors
+; and loads "part 4" which is user supplied data
 
+	RORG *-res2_s+$0c00
+bootstrap_3_start
+	REND
+
+	RORG B3S
+;bootstrap_3_rstart
+
+; pull part 3 in
+BOOT	SET 3			; select part to be assembled in
+	INCLUDE "bootstrap.asm"
+;bootstrap_3_rend
+	REND
+
+	RORG *-res2_s+$0c00
+bootstrap_3_end
 res2_e
+	REND
 
 _textend
 	SEG.U bss

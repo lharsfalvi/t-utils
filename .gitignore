@@ -1,6 +1,7 @@
 *.lst
 *.prg
 *.inc
+*.sym
 *.geany
 *.gz
 tmp
