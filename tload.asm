@@ -8,12 +8,13 @@
 
 	SEG.U bss
 	ORG TLOAD_BSS
-
+	IFCONST M_GCR
 .ctabl	DS $100			; runlen
 .ctabj	DS $100			; jump next
 .ctabr	DS $100			; remaining last
 .cbuf	DS 39			; circular data buffer
 .quant	DS $20			; quantization tables
+	ENDIF
 .restor DS 3			; irq restore temp
 .tbuf	DS 1+16+4		; block type, filename, start/end
 	SEG text
@@ -49,7 +50,14 @@
 ; name ptr in		$af/$b0		FNADR
 
 tload_init
+	IFCONST M_GCR
 	jmp .tload_init
+	ENDIF
+	IFCONST M_PLE
+	rts
+	nop
+	nop
+	ENDIF
 tload_start
 	jmp .tload_start
 tload_stop
@@ -546,7 +554,8 @@ tload_stop
 
 ; --- end of state machine routines
 
-; tload init. Do static setup. Call once.
+	IFCONST M_GCR
+; GCR specific tload init. Do static setup. Call once.
 ; - Set PAL/NTSC switch.
 ; - Build quantization tables according to tbase and tsym.
 
@@ -732,6 +741,8 @@ tload_stop
 
 	rts
 
+	ENDIF
+
 ;state handler address tables
 .sttabl
 	DC.B <.s_pressplay
@@ -755,6 +766,7 @@ tload_stop
 	DC.B >.s_checksum
 	DC.B >.s_idle
 
+	IFCONST M_GCR
 ;gcr to bin conversion table
 .gcrtobin
 	DC.B $ff		; invalid GCR nybbles = $ff
@@ -789,3 +801,5 @@ tload_stop
 	DC.B $0d		; $1d %11101
 	DC.B $0e		; $1e %11110
 	DC.B $ff
+
+	ENDIF
