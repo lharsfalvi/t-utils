@@ -11,18 +11,20 @@
 ; - polling loader (with a minimal feature set)
 ; - autostart control
 
-; Code is split into two parts.
+; Code is split into three parts.
 
 ; First part loads into the tape buffer ($0333-$03f2) with the
 ; tape file header, and contains init, controls, main loop, and
 ; end-of-load logic, execution control.
 
-; Second part loads to $0200 up until the IBSOUT vector ($0324-$0325),
-; which in turn autostarts "part 1" at $0348. It contains
-; specific routines for signal handling.
+; Second part loads to $0324-$0326 (IBSOUT) and autostarts "part1"
+; at $0348.
 
-; The parts need to be included / merged from a third, external
-; asm file (see tsave.asm and bootstrapmod.asm).
+; Third part loads to $0609 and contains specific routines for
+; signal handling.
+
+; The parts need to be included / merged from an external asm
+; file (see tsave.asm and bootstrapmod.asm).
 
 	IF BOOT == 1
 
@@ -30,52 +32,58 @@
 
 	SUBROUTINE
 
-	DC.W $0200		; load part 2 to $0200
-	DC.W $0326		; up until $0326-1 i.e. IBSOUT
-;$0337	DS 17,$20		; filename + 1 space
+	DC.W B2S		; load part 2 to $0324
+	DC.W B2E		; up until $0326-1 i.e. IBSOUT
+;$0337
+	DS 17,$20		; filename + 1 space
 ;$0348
 	jsr $e364		; Screen off, T1, sei
-	lda #$c0
-	sta $01
-	jsr $ff8a
+	jsr $ff8a		; RESTOR (kernal vector table)
 
 	ldx #3
-.bs5	lda .dat,x
+.bs5	lda .dat-4,x
+	sta $07c0,x
+	lda .dat,x
 	sta $2d,x
 	dex
 	bpl .bs5
+	
+	jsr $e910		; load part 3
+	bcs .bs4
 
-	txa			; "a bit of" delay + off screen
-.ri1	cmp $ff1d
-	bne .ri1
-	dex
-	bne .ri1
-
-	asl $ff13
-	stx $ff02
-	stx $ff04
-	stx $ff03
-	stx $ff05
-	ror $ff13
+	IFCONST M_PLE
+	IFCONST OPENSCREEN
+	sei
+	ELSE
+	jsr $e364		; Screen off, T1, sei
+	ENDIF
+	ELSE
+	jsr $e364		; Screen off, T1, sei
+	ENDIF
+	jsr $e38d		; Tape start, wait 600ms
 
 .l2	jsr readlead		; find $ff lead, get T
 
+	dec $ff09
 	lda #$ff
 	sta $b6
-	sta $d7			; init
-.l3	jsr readpulse
+	IFCONST M_GCR
+	sta $d7
+	ENDIF
+.l3	jsr readbit
 	cmp #$ff
 	beq .l3
 
-	jsr readgcrbyte
+	jsr readbyte
 	cmp #$ee
 	bne .l2
 
-	jsr readgcrbyte
+	jsr readbyte		; skip type byte
 
 	ldy #0
 	sty $f5
-.l8	jsr readgcrbyte
+.l8	jsr readbyte
+	ldy #0
 	sta ($2d),y
 	eor $f5
 	sta $f5
@@ -83,29 +91,35 @@
 	inc $2d
 	bne .l9
 	inc $2e
+	IFCONST BORDER_STR
+	IFCONST BORDER_INC
 	inc $ff19
+	ENDIF
+	ENDIF
 .l9	lda $2d
 	cmp $2f
 	lda $2e
 	sbc $30
 	bcc .l8
 
-	jsr readgcrbyte
+	jsr readbyte
 	pha
 
-	lda #$ee
+	IFCONST BORDER_STR
+	lda #BORDER_RES
 	sta $ff19
-	jsr $802e		; Basic reset
+	ENDIF
 	jsr $e8c8		; Motor off, screen on, irq on
 	pla
 	cmp $f5
 	beq .bs3
-	jmp $a82b		; load error
+.bs4	jmp $a82b		; load error
 .bs3	jsr $8a9a		; Basic clr
 	clc
 	bit $8bbe
 	jmp $8703
 
+	IFCONST M_GCR
 gcrtobin
 ;	DC.B $ff		; 0-8, aren't valid GCR nybbles
 ;	DC.B $ff		; so we get rid of them
@@ -139,17 +153,31 @@ gcrtobin
 	DC.B $0d		; $1d %11101
 	DC.B $0e		; $1e %11110
 ;	DC.B $ff
+	ENDIF
+	
+	DS B1E-8-*, 0		; zero padding
 
-	DS $03ee-*, 0
-.dat	DC.W 0
+	DC.W B3S		; part 3 start / len
+	DC.W ~(B3E-B3S-1)
+.dat	DC.W 0			; payload (part 4) start / end
 	DC.W 0
 ;$03f2
 	ENDIF
 
-; part 2 ($0200)
+; part 2 ($0324)
 	IF BOOT == 2
 
+	DC.W B1S+$15		; IBSOUT $0324 --> $0348
+				; execs bootstrap part 1 at $0348
+
+	ENDIF
+
+; part 3 ($0609)
+	IF BOOT == 3
+
 	SUBROUTINE
+
+	IFCONST M_GCR		; GCR mode bit / byte read
 
 ;X=0 --> rising
 ;X=1 --> falling
@@ -167,8 +195,13 @@ gcrtobin
 ; $e6	Measured timebase
 ; $e7	Positive edge delay correction (from $db)
 
-
 readlead
+	asl $ff13
+	stx $ff02
+	stx $ff04
+	stx $ff03
+	stx $ff05
+	ror $ff13
 
 .rl0	lda #$80		; rounding bias
 	sta $da
@@ -225,7 +258,6 @@ readlead
 	sta $d9			; and for the opposite pulse
 	rts
 
-
 .waitflip
 	lda .wcode,x
 	sta .w2
@@ -246,9 +278,15 @@ readlead
 	eor #$01
 	tay
 
+	IFCONST BORDER_STR
 	lda $ff19
-	eor #$41
+	IFCONST BORDER_EOR
+	eor #BORDER_MOD
+	ELSE
+	adc #(BORDER_MOD-1)
+	ENDIF
 	sta $ff19
+	ENDIF
 
 	lda $00d0,y		; derive T
 	sbc $d0,x
@@ -259,7 +297,6 @@ readlead
 	rts
 
 .wcode	DC.B $f0, $d0		; beq, bne
-
 
 .cumulate
 	clc
@@ -274,8 +311,7 @@ readlead
 	inc $dc,x
 .cu1	rts
 
-
-readpulse
+readbit
 	lda $d6,x		; do we have time left?
 	bpl .rp1		; pos, yes we do.
 
@@ -304,9 +340,7 @@ readpulse
 	sta $b6
 	rts
 
-
-readgcrbyte
-	sty $e4			; push Y
+readbyte
 	jsr .readgcrnybble
 	asl
 	asl
@@ -314,7 +348,6 @@ readgcrbyte
 	asl
 	sta $b7
 	jsr .readgcrnybble
-	ldy $e4			; pull y
 	and #$0f
 	ora $b7
 	rts
@@ -322,23 +355,139 @@ readgcrbyte
 .readgcrnybble
 	lda #%00001000
 	sta $b6
-.rgn	jsr readpulse
+.rgn	jsr readbit
 	bcc .rgn
 	and #$1f
 	tay
 	lda gcrtobin-9,y
 	rts
+	ENDIF
 
+	IFCONST M_PLE		; PLE mode bit / byte read
 
-	DS $0300-*, 0
+; $dd	last timestamp
+; $de	last timestamp, buffer
+; $df	last full pulse T, low
+; $e0	last full pulse T, high
+; $e1	cumulated T, b1
+; $e2	cumulated T, b2
+; $e3	cumulated T, b3
 
-	DC.B $86, $86, $12, $87, $56, $89, $6e, $8b
-	DC.B $d6, $8b, $17, $94, $6a, $89, $88, $8b
-	DC.B $8b, $8c, $42, $ce, $0e, $ce, $4c, $f4
-	DC.B $53, $ef, $5d, $ee, $18, $ed, $60, $ed
-	DC.B $0c, $ef, $e8, $eb
+; $e4	pulse counter, low
+; $e5	pulse counter, high
 
-	DC.W $0348		; IBSOUT, $0324
-				; execs bootstrap part 1 at $0348
+; --> should be preserved
+; $e6	measured threshold, low
+; $e7	measured threshold, high
+
+readlead
+.rl0	lda #0
+	sta $e1			; cumulators
+	sta $e2
+	sta $e3
+	sta $e4
+	lda #<(T*3-6)
+	sta $e6
+	lda #>(T*3-6)
+	sta $e7			; initial threshold
+	lda #$80
+	sta $e4
+	lda #$01		; number of lead pulses
+	sta $e5
+
+.rl1	jsr .waitfall
+
+	lda $dd
+	sec
+	sbc $de
+	stx $dd
+	sta $df
+	lda $de
+	sec
+	sbc $dd
+	clc
+	adc $df
+	sta $df
+	lda #0
+	rol
+	sta $e0
+
+	lsr
+	lda $df
+	ror
+	cmp #(T+T/2)
+	bcs .rl0		; >T+50%, retry
+
+	jsr .cumulate
+
+	dec $e4
+	bne .rl1
+	dec $e5
+	bpl .rl1
+
+	lda $e3
+	cmp #$02
+	bcs .rl0
+	sta $e7
+	lda $e2
+	sbc #$05		; threshold adjustment
+	sta $e6
+	rts
+
+readbyte
+	lda #$01
+	sta $b6
+readbit
+.rb1	jsr .waitfall
+	lda #$10
+	and $ff09
+	sta $ff09
+	sbc #$02
+	asl
+	rol $b6
+	bcc .rb1
+	lda $b6
+	rts
+	
+.cumulate
+	clc
+	lda $df
+	adc $e1
+	sta $e1
+	lda $e0
+	adc $e2
+	sta $e2
+	bcc .cu1
+	inc $e3
+.cu1	rts
+
+.waitfall
+	lda #$10		; wait for CST_RD to make a full cycle
+.rrb1	bit $01
+	beq .rrb1
+	ldx $ff04
+	stx $de
+	ldx $e6
+	ldy $e7
+.rrb2	bit $01
+	bne .rrb2		; until falling edge
+	stx $ff02
+	sty $ff03
+	ldx $ff04
+	IFCONST BORDER_STR
+	lda $ff19		; border striping
+	IFCONST BORDER_EOR
+	eor #BORDER_MOD
+	ELSE
+	clc
+	adc #BORDER_MOD
+	ENDIF
+	sta $ff19
+	ENDIF
+	rts
+
+	ENDIF
+
+B3E	SET *
 
 	ENDIF
