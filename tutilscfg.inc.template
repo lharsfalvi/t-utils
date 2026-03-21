@@ -1,19 +1,35 @@
-; This file holds t-utils' global / static parameter definitions.
+; The file (or, symlink) derived from this template holds
+; t-utils' global / static parameter definitions.
+
+; BE SURE TO _COPY_ THIS FILE to 'tutilscfg.inc' in case you want
+; to customize _your own_ native build's defaults and features.
+; HANDS OFF this template file, unless you want to change things
+; used by tmaster.py (and you know what you're doing).
+
 
 ; Mode is either
 ; GCR --> Group Code Recording
 ; PLE --> Pulse Length Encoding
-;MODE		SET "GCR"
-MODE		SET "PLE"
-
+; Default: PLE
+	IFNCONST M_GCR
+	IFNCONST M_PLE
+;M_GCR		EQU 0
+M_PLE		EQU 0
+	ENDIF
+	ENDIF
+	
 ; Defined --> create regular "duplicate" Kernal file block record
 ; None    --> omit first copy
-;PLAYITSAFE	EQU 0
+PLAYITSAFE	EQU 0
 
 ; Defined --> use open screen bootstrap
 ; None    --> leave screen closed during bootstrap loading
 ; (Only applicable for PLE mode. GCR boot won't work on open screen.)
 OPENSCREEN	EQU 0
+
+; Defined --> restore open screen at the end of bootstap loading
+; None    --> leave it as-is.
+OPENSCREENRST	EQU 0
 
 ; Defined --> stripe border while bootstrap loading
 ; None    --> no border striping
@@ -42,15 +58,18 @@ BORDER_RES	EQU $ee
 ; GCR --> $c0 (which is also one bit time)
 ; PLE --> $70 (*2 --> bit 0, *2*2 --> bit 1)
 
-	IF MODE=="GCR"
-M_GCR		EQU 0
+	IFCONST M_GCR
 T		SET $C0
+MODE		SET "GCR"
 	ENDIF
 
-	IF MODE=="PLE"
-M_PLE		EQU 0
+	IFCONST M_PLE
 T		SET $70
+MODE		SET "PLE"
 	ENDIF
+
+
+; Block start and end addresses
 
 B1S		EQU $0333
 B1E		EQU $03f2

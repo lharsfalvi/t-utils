@@ -13,7 +13,8 @@ read -r -d '' BFILES <<'EOF'
 tsave.asm
 tload.asm
 tloadtest.asm
-bootstrapmod.asm
+bootstrapmod.ple.asm
+bootstrapmod.gcr.asm
 EOF
 
 # Files to be included in the source release archive
@@ -30,6 +31,8 @@ tloadtest.asm
 tsave.asm
 bootstrap.asm
 bootstrapmod.asm
+bootstrapmod.ple.asm
+bootstrapmod.gcr.asm
 EOF
 
 # Files to be included in the binary release archive
@@ -84,7 +87,7 @@ get_ver_year () {
 
 # Clean build directory
 clean () {
-  rm -f *.prg *.lst *.sym *.tar.gz
+  rm -f *.prg *.lst *.sym *.ofs *.ext *.tar.gz
   for I in *.inc; do
     if [ -L "$I" ]; then
       rm -f "$I";
@@ -92,11 +95,58 @@ clean () {
   done
 }
 
-# Build
+# Assemble source file
+assemble () {
+
+  local file="$1"
+
+  if ! dasm "$file.asm" \
+	    "-l$file.lst" \
+	    "-o$file.prg" \
+	    "-s$file.sym" \
+	    "-Dmod_$file" \
+	    "$DAOPTS"
+  then
+    echo 1>&2 "Failed to assemble $filename"
+    exit 1
+  fi
+}
+
+# Extract specified module to hexdumps and offsets
+extractmod () {
+
+  local file="$1"
+  local typ
+  
+  typ="${file##*.}"
+  typ="${typ^^}"
+  
+  grep '^O_' "$file.sym" | sed -Ee 's/\s+/=0x/' > "$file.ofs"
+  
+  source $file.ofs
+
+  echo -n > "$file.ext"
+  
+  for I in 1 2 3; do
+    echo "${typ}_BSBLOCK${I} = bytes.fromhex(" >> "$file.ext"
+    dd if="$file.prg" \
+       bs=1 \
+       skip="$((O_B${I}S))" \
+       count="$(($((O_B${I}E))-$((O_B${I}S))))" \
+       status=none \
+    | od -An -tx1 \
+    | sed -Ee 's/^\s/\t"/g' \
+    | sed -Ee 's/$/"/g' >> "$file.ext"
+    echo -e ")\n" >> "$file.ext"
+  done
+}
+
+# Build specified file(s)
 build () {
 
   local files="$1"
   local file
+  local ext
   local filename
 
 # Need Dasm 2+
@@ -122,16 +172,16 @@ build () {
     if [ -e "$filename" ]; then
       echo "Assembling $filename"
       file="${filename%.*}"
-      if ! dasm "$file.asm" \
-		"-l$file.lst" \
-		"-o$file.prg" \
-		"-s$file.sym" \
-		"-Dmod_$file" \
-		"$DAOPTS"
-      then
-        echo 1>&2 "Failed to assemble $filename"
-        exit 1
-      fi
+      ext="${filename##*.}"
+      case "$ext" in
+        asm)
+          assemble "$file"
+          if [[ "$file" =~ ^bootstrapmod ]]; then
+            extractmod "$file"
+          fi
+        ;;
+
+      esac
     else
       echo 1>&2 "$filename not found"
       exit 1

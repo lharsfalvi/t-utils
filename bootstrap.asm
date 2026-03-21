@@ -35,6 +35,7 @@
 	DC.W B2S		; load part 2 to $0324
 	DC.W B2E		; up until $0326-1 i.e. IBSOUT
 ;$0337
+.o_fnam
 	DS 17,$20		; filename + 1 space
 ;$0348
 	jsr $e364		; Screen off, T1, sei
@@ -51,12 +52,14 @@
 	jsr $e910		; load part 3
 	bcs .bs4
 
+.o_oscr				; open screen switch offset
 	IFCONST M_PLE
 	IFCONST OPENSCREEN
-	sei
+	sei			; 78 24 e3
+	bit $e3
 	ELSE
 	jsr $e364		; Screen off, T1, sei
-	ENDIF
+	ENDIF			; 20 64 e3
 	ELSE
 	jsr $e364		; Screen off, T1, sei
 	ENDIF
@@ -91,9 +94,12 @@
 	inc $2d
 	bne .l9
 	inc $2e
+.o_binc
 	IFCONST BORDER_STR
 	IFCONST BORDER_INC
-	inc $ff19
+	inc $ff19		; ee 19 ff
+	ELSE
+	bit $ff19		; 2c 19 ff
 	ENDIF
 	ENDIF
 .l9	lda $2d
@@ -105,19 +111,29 @@
 	jsr readbyte
 	pha
 
+.o_bresv 	EQU *+1
+	lda #BORDER_RES		; a9 ee
+.o_bres
 	IFCONST BORDER_STR
-	lda #BORDER_RES
-	sta $ff19
+	sta $ff19		; 8d 19 ff
+	ELSE
+	bit $ff19		; 2c 19 ff
 	ENDIF
-	jsr $e8c8		; Motor off, screen on, irq on
+	jsr $e3b0		; motor off
+.o_osrs	EQU *+1			; 78, 81
+	IFCONST OPENSCREENRST
+	jsr $e378		; screen on, irq on
+	ELSE
+	jsr $e381		; irq on
+	ENDIF
 	pla
 	cmp $f5
 	beq .bs3
 .bs4	jmp $a82b		; load error
-.bs3	jsr $8a9a		; Basic clr
+.bs3	jsr $8a93		; Basic start load, clr
 	clc
-	bit $8bbe
-	jmp $8703
+.o_sta	EQU *+1
+	jmp $8703		; 03 87 / cd 8b / yy xx
 
 	IFCONST M_GCR
 gcrtobin
@@ -159,7 +175,9 @@ gcrtobin
 
 	DC.W B3S		; part 3 start / len
 	DC.W ~(B3E-B3S-1)
+.o_stradd
 .dat	DC.W 0			; payload (part 4) start / end
+.o_endadd
 	DC.W 0
 ;$03f2
 	ENDIF
@@ -174,8 +192,6 @@ gcrtobin
 
 ; part 3 ($0609)
 	IF BOOT == 3
-
-	SUBROUTINE
 
 	IFCONST M_GCR		; GCR mode bit / byte read
 
@@ -278,14 +294,19 @@ readlead
 	eor #$01
 	tay
 
-	IFCONST BORDER_STR
 	lda $ff19
+	clc
+.o_brmod
 	IFCONST BORDER_EOR
-	eor #BORDER_MOD
+	eor #BORDER_MOD		; 49 xx
 	ELSE
-	adc #(BORDER_MOD-1)
+	adc #BORDER_MOD		; 69 xx
 	ENDIF
-	sta $ff19
+.o_brsta	
+	IFCONST BORDER_STR
+	sta $ff19		; 8d 19 ff
+	ELSE
+	bit $ff19		; 2c 19 ff
 	ENDIF
 
 	lda $00d0,y		; derive T
@@ -474,15 +495,19 @@ readbit
 	stx $ff02
 	sty $ff03
 	ldx $ff04
-	IFCONST BORDER_STR
 	lda $ff19		; border striping
-	IFCONST BORDER_EOR
-	eor #BORDER_MOD
-	ELSE
 	clc
-	adc #BORDER_MOD
+.o_brmod
+	IFCONST BORDER_EOR
+	eor #BORDER_MOD		; 49 xx
+	ELSE
+	adc #BORDER_MOD		; 69 xx
 	ENDIF
-	sta $ff19
+.o_brsta	
+	IFCONST BORDER_STR
+	sta $ff19		; 8d 19 ff
+	ELSE
+	bit $ff19		; 2c 19 ff
 	ENDIF
 	rts
 
