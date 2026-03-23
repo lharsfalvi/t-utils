@@ -26,13 +26,17 @@ BOOT	SET 3
 
 ; Exported symbols, all of them offsets
 
-O_B1S			EQU B1S-B2S
-O_B1E			EQU B1E-B2S
-O_B2S			EQU B2S-B2S
-O_B2E			EQU B2E-B2S
-O_B3S			EQU B3S-B2S
-O_B3E			EQU B3E-B2S
-	
+; Only internally used in build.sh
+
+I_B1S			EQU B1S-B2S
+I_B1E			EQU B1E-B2S
+I_B2S			EQU B2S-B2S
+I_B2E			EQU B2E-B2S
+I_B3S			EQU B3S-B2S
+I_B3E			EQU B3E-B2S
+
+; Externals
+
 O_FILENAME		EQU .o_fnam - B1S
 ; bootstrap filename
 ; filename $10 byte padded with $20
@@ -45,7 +49,7 @@ O_BOOTEND		EQU .o_endadd - B1S
 
 O_OPENSCREEN		EQU .o_oscr - B1S
 ; bootstrap with open screen
-; 20 60		no
+; 20 64		no
 ; 78 24		yes
 
 O_BORDER_INCR		EQU .o_binc - B1S

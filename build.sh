@@ -87,7 +87,7 @@ get_ver_year () {
 
 # Clean build directory
 clean () {
-  rm -f *.prg *.lst *.sym *.ofs *.ext *.tar.gz
+  rm -f *.prg *.lst *.sym *.ext *.tar.gz
   for I in *.inc; do
     if [ -L "$I" ]; then
       rm -f "$I";
@@ -112,7 +112,7 @@ assemble () {
   fi
 }
 
-# Extract specified module to hexdumps and offsets
+# Extract specified module to offsets and hexdumps
 extractmod () {
 
   local file="$1"
@@ -121,18 +121,17 @@ extractmod () {
   typ="${file##*.}"
   typ="${typ^^}"
   
-  grep '^O_' "$file.sym" | sed -Ee 's/\s+/=0x/' > "$file.ofs"
-  
-  source $file.ofs
+  eval "$(grep '^I_' "$file.sym" | sed -Ee 's/\s+/=0x/')"
 
-  echo -n > "$file.ext"
-  
+  grep '^O_' "$file.sym" | sed -Ee 's/\s+/=0x/' > "$file.ext"
+  echo >> "$file.ext"
+
   for I in 1 2 3; do
-    echo "${typ}_BSBLOCK${I} = bytes.fromhex(" >> "$file.ext"
+    echo "BSBLOCK${I} = bytes.fromhex(" >> "$file.ext"
     dd if="$file.prg" \
        bs=1 \
-       skip="$((O_B${I}S))" \
-       count="$(($((O_B${I}E))-$((O_B${I}S))))" \
+       skip="$((I_B${I}S))" \
+       count="$(($((I_B${I}E))-$((I_B${I}S))))" \
        status=none \
     | od -An -tx1 \
     | sed -Ee 's/^\s/\t"/g' \

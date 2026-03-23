@@ -171,12 +171,13 @@ tsave	ldx $ae			; FA; current device number
 	rts
 
 ; sblkout
-; Write out standard tape block (single / second run)
+; Write out standard tape block
 ; Partly follows the original Kernal routine at $e4ba
+; PASS = $f7
 ; TYPE = $f8
 ; WRBASE = $ba/$bb
 ; EAL/EAH = $9d/$9e
-; TYPE != 0 --> long lead, TYPE == 0 --> short lead
+; C = 1 --> long lead, == 0 --> short lead
 ; Start of block --> WRBASE
 ; End of block --> EAL / EAH
 ; 0840
@@ -295,7 +296,7 @@ tblkout
 	bit $ad
 	bpl .l01
 	lda #1
-.l01	jsr .writecbyte	; block type
+.l01	jsr .writecbyte		; block type
 
 	bit $ad
 	bpl .l02
@@ -490,7 +491,7 @@ bintogcr
 	sta $90
 	asl
 	asl
-	adc $90			; *10
+	adc $90			; *5
 	sta $90
 	lda #0
 	sta $a7
