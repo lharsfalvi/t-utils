@@ -147,12 +147,18 @@ _PETSCII_LUT_SHIFTED = {
 }
 
 _EXT_PLE = {
-    'O_BOOTEND': 0x00bd, 'O_BOOTSTART': 0x00bb,
-    'O_BORDER_INCR': 0x0066, 'O_BORDER_MODIFY': 0x00a4,
-    'O_BORDER_MODIFY_MET': 0x00a2, 'O_BORDER_MODIFY_VAL': 0x00a3,
-    'O_BORDER_RES_VAL': 0x0078, 'O_BORDER_RESTORE': 0x0079,
-    'O_FILENAME': 0x0004, 'O_OPENSCREEN': 0x0030,
-    'O_OPENSCREEN_RST': 0x0080, 'O_START': 0x008f,
+    'O_BOOTEND': 0x00bd,
+    'O_BOOTSTART': 0x00bb,
+    'O_BORDER_INCR': 0x0066,
+    'O_BORDER_MODIFY': 0x00a4,
+    'O_BORDER_MODIFY_MET': 0x00a2,
+    'O_BORDER_MODIFY_VAL': 0x00a3,
+    'O_BORDER_RES_VAL': 0x0078,
+    'O_BORDER_RESTORE': 0x0079,
+    'O_FILENAME': 0x0004,
+    'O_OPENSCREEN': 0x0030,
+    'O_OPENSCREEN_RST': 0x0080,
+    'O_START': 0x008f,
     'BSBLOCK1': bytes.fromhex(
         "24 03 26 03 20 20 20 20 20 20 20 20 20 20 20 20"
         "20 20 20 20 20 20 64 e3 20 8a ff a2 03 bd ea 03"
@@ -167,7 +173,9 @@ _EXT_PLE = {
         "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
         "00 00 00 00 00 00 00 09 06 58 ff 00 00 00 00"
     ),
-    'BSBLOCK2': bytes.fromhex("48 03"),
+    'BSBLOCK2': bytes.fromhex(
+        "48 03"
+    ),
     'BSBLOCK3': bytes.fromhex(
         "a9 00 85 e1 85 e2 85 e3 85 e4 a9 4a 85 e6 a9 01"
         "85 e7 a9 80 85 e4 a9 01 85 e5 20 8b 06 a5 dd 38"
@@ -184,12 +192,18 @@ _EXT_PLE = {
 }
 
 _EXT_GCR = {
-    'O_BOOTEND': 0x00bd, 'O_BOOTSTART': 0x00bb,
-    'O_BORDER_INCR': 0x0068, 'O_BORDER_MODIFY': 0x0092,
-    'O_BORDER_MODIFY_MET': 0x0090, 'O_BORDER_MODIFY_VAL': 0x0091,
-    'O_BORDER_RES_VAL': 0x007a, 'O_BORDER_RESTORE': 0x007b,
-    'O_FILENAME': 0x0004, 'O_OPENSCREEN': 0x0030,
-    'O_OPENSCREEN_RST': 0x0082, 'O_START': 0x0091,
+    'O_BOOTEND': 0x00bd,
+    'O_BOOTSTART': 0x00bb,
+    'O_BORDER_INCR': 0x0068,
+    'O_BORDER_MODIFY': 0x0092,
+    'O_BORDER_MODIFY_MET': 0x0090,
+    'O_BORDER_MODIFY_VAL': 0x0091,
+    'O_BORDER_RES_VAL': 0x007a,
+    'O_BORDER_RESTORE': 0x007b,
+    'O_FILENAME': 0x0004,
+    'O_OPENSCREEN': 0x0030,
+    'O_OPENSCREEN_RST': 0x0082,
+    'O_START': 0x0091,
     'BSBLOCK1': bytes.fromhex(
         "24 03 26 03 20 20 20 20 20 20 20 20 20 20 20 20"
         "20 20 20 20 20 20 64 e3 20 8a ff a2 03 bd ea 03"
@@ -204,7 +218,9 @@ _EXT_GCR = {
         "06 07 ff 09 0a 0b ff 0d 0e 00 00 00 00 00 00 00"
         "00 00 00 00 00 00 00 09 06 fb fe 00 00 00 00"
     ),
-    'BSBLOCK2': bytes.fromhex("48 03"),
+    'BSBLOCK2': bytes.fromhex(
+        "48 03"
+    ),
     'BSBLOCK3': bytes.fromhex(
         "0e 13 ff 8e 02 ff 8e 04 ff 8e 03 ff 8e 05 ff 6e"
         "13 ff a9 80 85 da 85 db a9 00 85 d8 85 d9 85 dc"
