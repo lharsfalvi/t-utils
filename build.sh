@@ -17,6 +17,12 @@ bootstrapmod.ple.asm
 bootstrapmod.gcr.asm
 EOF
 
+# Auxiliary source files (assembled as an intermediate result)
+read -r -d '' AUXFILES <<'EOF'
+bootstrapmod.ple.asm
+bootstrapmod.gcr.asm
+EOF
+
 # Files to be included in the source release archive
 read -r -d '' SRFILES <<'EOF'
 LICENSE
@@ -44,6 +50,8 @@ tsave.prg
 tload.prg
 tloadtest.prg
 EOF
+
+BUILDDIR="build"
 
 # Dasm command line options
 DAOPTS="-f3 -v0"
@@ -87,7 +95,9 @@ get_ver_year () {
 
 # Clean build directory
 clean () {
-  rm -f *.prg *.lst *.sym *.ext *.tar.gz
+  rm -f *.prg *.tar.gz
+  rm -rf "$BUILDDIR"
+
   for I in *.inc; do
     if [ -L "$I" ]; then
       rm -f "$I";
@@ -99,11 +109,18 @@ clean () {
 assemble () {
 
   local file="$1"
+  local path
+
+  if grep -qxF "$file.asm" <<< "$AUXFILES"; then
+    path="$BUILDDIR"
+  else
+    path="."
+  fi
 
   if ! dasm "$file.asm" \
-	    "-l$file.lst" \
-	    "-o$file.prg" \
-	    "-s$file.sym" \
+	    "-l$BUILDDIR/$file.lst" \
+	    "-o$path/$file.prg" \
+	    "-s$BUILDDIR/$file.sym" \
 	    "-Dmod_$file" \
 	    "$DAOPTS"
   then
@@ -121,22 +138,25 @@ extractmod () {
   typ="${file##*.}"
   typ="${typ^^}"
   
-  eval "$(grep '^I_' "$file.sym" | sed -Ee 's/\s+/=0x/')"
+  echo "Compiling $BUILDDIR/$file.ext"
+  
+  eval "$(grep '^I_' "$BUILDDIR/$file.sym" | sed -Ee 's/\s+/=0x/')"
 
-  grep '^O_' "$file.sym" | sed -Ee 's/\s+/=0x/' > "$file.ext"
-  echo >> "$file.ext"
+  grep '^O_' "$BUILDDIR/$file.sym" \
+  | sed -Ee 's/\s+/=0x/' > "$BUILDDIR/$file.ext"
+  echo >> "$BUILDDIR/$file.ext"
 
   for I in 1 2 3; do
-    echo "BSBLOCK${I} = bytes.fromhex(" >> "$file.ext"
-    dd if="$file.prg" \
+    echo "BSBLOCK${I} = bytes.fromhex(" >> "$BUILDDIR/$file.ext"
+    dd if="$BUILDDIR/$file.prg" \
        bs=1 \
        skip="$((I_B${I}S))" \
        count="$(($((I_B${I}E))-$((I_B${I}S))))" \
        status=none \
     | od -An -tx1 \
     | sed -Ee 's/^\s/\t"/g' \
-    | sed -Ee 's/$/"/g' >> "$file.ext"
-    echo -e ")\n" >> "$file.ext"
+    | sed -Ee 's/$/"/g' >> "$BUILDDIR/$file.ext"
+    echo -e ")\n" >> "$BUILDDIR/$file.ext"
   done
 }
 
@@ -152,6 +172,11 @@ build () {
   if ! dasm | head -1 | grep -q '^DASM 2\.'; then
     echo 1>&2 "Need dasm v2+!"
     exit 1
+  fi
+
+# Make sure that build dir exists.
+  if [ ! -e "$BUILDDIR" ]; then
+    mkdir "$BUILDDIR"
   fi
 
 # Need version and year in ver.inc

@@ -2,20 +2,22 @@
 """
 TMaster - Tape Master for Commodore 264 series.
 
-Creates master recording files (.raw, .tap, .wav) for multi-load software products.
+Creates master recording files (.raw, .tap, .wav) for multi-load
+software products.
 
 Usage:
-    tmaster [global args] input_file "recorded_name" [file args] [...] output.{raw|tap|wav}
+    tmaster [global args] input_file "recorded_name" [file args]
+            [...] output.{raw|tap|wav}
 
-Full specification: specs/tmaster.spec.md
-Encoding formats:  ext/recording-formats.md
-TAP container:     ext/c16-tap-v2-format.md
+Full specification: tmaster.spec/tmaster.spec.md
+Encoding formats:  tmaster.spec/recording-formats.md
+TAP container:     tmaster.spec/c16-tap-format.md
 """
 
 import struct
 import sys
 
-# ─── Kernal tape constants ─────────────────────────────────────────────────────
+# ─── Kernal tape constants ───────────────────────────────────────────────────
 
 KERNAL_TS = 25       # Short pulse (T)
 KERNAL_TM = 52       # Medium pulse (T)
@@ -24,13 +26,13 @@ KERNAL_ROUND1_DEFAULT_LEADIN = 0x4100
 KERNAL_ROUND2_DEFAULT_LEADIN = 0x0100
 KERNAL_TRAILING_LEADIN = 0x00F3
 
-# ─── PLE constants ─────────────────────────────────────────────────────────────
+# ─── PLE constants ───────────────────────────────────────────────────────────
 
 PLE_DEFAULT_TS = 14
 PLE_LEADIN_COUNT = 800
 PLE_LEADOUT_COUNT = 160
 
-# ─── GCR constants ─────────────────────────────────────────────────────────────
+# ─── GCR constants ───────────────────────────────────────────────────────────
 
 GCR_DEFAULT_TB = 24
 GCR_LEADIN_NYBBLES = 2560
@@ -44,14 +46,14 @@ GCR_TABLE = [
     0b01101, 0b11101, 0b11110, 0b10101,  # 0xc–0xf
 ]
 
-# ─── Bootstrap timing / gap constants ──────────────────────────────────────────
+# ─── Bootstrap timing / gap constants ────────────────────────────────────────
 
 GAP_BSBLOCK1 = 61440
 GAP_BSBLOCK2 = 61440
 GAP_BSBLOCK3 = 61440
 GAP_BETWEEN_FILES = 244000
 
-# ─── Bootstrap patch value constants ───────────────────────────────────────────
+# ─── Bootstrap patch value constants ─────────────────────────────────────────
 
 OPENSCREEN_YES = 0x2478
 OPENSCREEN_NO = 0x6420
@@ -70,22 +72,23 @@ DEFAULT_EXEC_ADDR = 0x8703
 DEFAULT_BORDER_UPDATE_VALUE = 0x41
 DEFAULT_BORDER_RESTORE_VALUE = 0xEE
 
-# ─── TAP V2 header constants ───────────────────────────────────────────────────
+# ─── TAP V2 header constants ─────────────────────────────────────────────────
 
 TAP_MAGIC = b'C16-TAPE-RAW'
 TAP_VERSION = 0x02
 TAP_PLATFORM = 0x02   # C16
 TAP_VIDEO = 0x00      # PAL
 
-# ─── WAV output constants ──────────────────────────────────────────────────────
+# ─── WAV output constants ────────────────────────────────────────────────────
 
 # PAL C16 T-clock rate: crystal / 20 / 8  ≈ 110840.4375 Hz
 _WAV_SOURCE_RATE = 17734470 / 20 / 8
 # Intervals longer than this many T are rendered as DC midpoint (silence)
 _WAV_MIDPOINT_T = 2000
 
-# ─── Embedded external data ────────────────────────────────────────────────────
-# Data from ext/ files, interpreted at code generation time and baked in below.
+# ─── Embedded external data ──────────────────────────────────────────────────
+# Data from tmaster.spec/ and build/ files, interpreted at code generation
+# time and baked in below.
 
 _PETSCII_LUT = {
     ' ': 0x20, '!': 0x21, '"': 0x22, '#': 0x23, '$': 0x24, '%': 0x25,
@@ -224,14 +227,14 @@ _EXT_GCR = {
 }
 
 
-# ─── Error helper ──────────────────────────────────────────────────────────────
+# ─── Error helper ────────────────────────────────────────────────────────────
 
 def _die(msg: str):
     print(f"tmaster: error: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
-# ─── Ext data accessor ─────────────────────────────────────────────────────────
+# ─── Ext data accessor ───────────────────────────────────────────────────────
 
 def load_ext(encoding: str) -> dict:
     """
@@ -250,7 +253,7 @@ def load_ext(encoding: str) -> dict:
     return result
 
 
-# ─── PETSCII conversion ────────────────────────────────────────────────────────
+# ─── PETSCII conversion ──────────────────────────────────────────────────────
 
 def to_petscii(name: str, method: str = 'convenient') -> bytes:
     """
@@ -277,23 +280,26 @@ def to_petscii(name: str, method: str = 'convenient') -> bytes:
     for i, ch in enumerate(name):
         code = lut.get(ch)
         if code is None:
-            print(f"tmaster: warning: '{ch}' has no PETSCII equivalent, using space",
-                  file=sys.stderr)
+            print(
+                f"tmaster: warning: '{ch}' has no PETSCII equivalent,"
+                " using space",
+                file=sys.stderr)
             result[i] = space_code
         else:
             result[i] = code & 0xFF
     return bytes(result)
 
 
-# ─── Tape stream encoder ───────────────────────────────────────────────────────
+# ─── Tape stream encoder ─────────────────────────────────────────────────────
 
 class TapeStream:
     """
-    Accumulates a tape bitstream as a sequence of level-transition absolute times.
+    Accumulates a tape bitstream as a sequence of level-transition
+    absolute times.
 
     Initial state is L (logical 0) at t=0. Each entry in _transitions marks
     the absolute time at which the level flips. Methods map to the encoding
-    primitives described in ext/recording-formats.md.
+    primitives described in tmaster.spec/recording-formats.md.
     """
 
     def __init__(self):
@@ -335,7 +341,7 @@ class TapeStream:
     def _kernal_byte(self, value: int):
         """Kernal byte: Start symbol + 8 data bits LSB-first + odd parity."""
         self._pulse(KERNAL_TL)   # Start: Tl pulse
-        self._pulse(KERNAL_TM)   #        then Tm pulse
+        self._pulse(KERNAL_TM)   # then Tm pulse
         for i in range(8):
             self._kernal_bit((value >> i) & 1)
         # Odd parity: 1 if popcount(value) is even
@@ -349,7 +355,8 @@ class TapeStream:
         Args:
             round_num:  1 or 2 (determines countdown byte values)
             n_leadin:   number of lead-in pulses (pulse of Ts each)
-            block_type: 0–255; value 0 is not emitted but still XORed into checksum
+            block_type: 0–255; value 0 is not emitted but still
+                XORed into checksum
             block_data: raw payload bytes
         """
         # Lead-in
@@ -512,7 +519,8 @@ class TapeStream:
 
     def to_raw(self) -> bytes:
         """
-        Serialise as a raw bitstream: one logical level per T, MSB-first in bytes.
+        Serialise as a raw bitstream: one logical level per T,
+        MSB-first in bytes.
 
         Bit n is in byte[n // 8] at bit position (7 - n % 8).
         All-zero = L; bits set to 1 where the level is H.
@@ -533,7 +541,8 @@ class TapeStream:
 
 
 def _set_h_bits(raw: bytearray, start_t: int, end_t: int):
-    """Set bits [start_t, end_t) to 1 in a raw bitstream bytearray (MSB-first)."""
+    """Set bits [start_t, end_t) to 1 in a raw bitstream bytearray
+    (MSB-first)."""
     if start_t >= end_t:
         return
     sb = start_t >> 3
@@ -549,9 +558,10 @@ def _set_h_bits(raw: bytearray, start_t: int, end_t: int):
         raw[eb] |= (0xFF << (7 - ep)) & 0xFF
 
 
-# ─── Bootstrap encoding ────────────────────────────────────────────────────────
+# ─── Bootstrap encoding ──────────────────────────────────────────────────────
 
-def _patch_bootstrap(ext: dict, file_data: bytes, petscii_name: bytes, opts) -> None:
+def _patch_bootstrap(ext: dict, file_data: bytes,
+                     petscii_name: bytes, opts) -> None:
     """Patch BSBLOCK1 and BSBLOCK3 in-place with per-file bootstrap options."""
     b1 = ext['BSBLOCK1']
     b3 = ext['BSBLOCK3']
@@ -570,22 +580,34 @@ def _patch_bootstrap(ext: dict, file_data: bytes, petscii_name: bytes, opts) -> 
         '<H', b1, ext['O_OPENSCREEN'],
         OPENSCREEN_YES if opts.open_screen else OPENSCREEN_NO
     )
-    b1[ext['O_OPENSCREEN_RST']] = OPENSCREEN_RST_YES if opts.restore_open_screen else OPENSCREEN_RST_NO
+    b1[ext['O_OPENSCREEN_RST']] = (
+        OPENSCREEN_RST_YES if opts.restore_open_screen
+        else OPENSCREEN_RST_NO
+    )
 
     # Border stripe (BSBLOCK3)
-    b3[ext['O_BORDER_MODIFY']] = BORDER_MODIFY_YES if opts.border_stripe else BORDER_MODIFY_NO
+    b3[ext['O_BORDER_MODIFY']] = (
+        BORDER_MODIFY_YES if opts.border_stripe else BORDER_MODIFY_NO
+    )
 
     # Border increment (BSBLOCK1)
-    b1[ext['O_BORDER_INCR']] = BORDER_INCR_YES if opts.border_incr else BORDER_INCR_NO
+    b1[ext['O_BORDER_INCR']] = (
+        BORDER_INCR_YES if opts.border_incr else BORDER_INCR_NO
+    )
 
     # Border update method and value (BSBLOCK3)
     b3[ext['O_BORDER_MODIFY_MET']] = (
-        BORDER_UPDATE_ADC if opts.border_update_method == 'adc' else BORDER_UPDATE_EOR
+        BORDER_UPDATE_ADC
+        if opts.border_update_method == 'adc'
+        else BORDER_UPDATE_EOR
     )
     b3[ext['O_BORDER_MODIFY_VAL']] = opts.border_update_value
 
     # Border restore (BSBLOCK1)
-    b1[ext['O_BORDER_RESTORE']] = BORDER_RESTORE_YES if opts.border_restore else BORDER_RESTORE_NO
+    b1[ext['O_BORDER_RESTORE']] = (
+        BORDER_RESTORE_YES if opts.border_restore
+        else BORDER_RESTORE_NO
+    )
     b1[ext['O_BORDER_RES_VAL']] = opts.border_restore_value
 
     # Exec address
@@ -644,12 +666,14 @@ def encode_standalone(stream: TapeStream, file_data: bytes,
     end_addr = start_addr + len(file_data) - 2
     payload = file_data[2:]
     if encoding == 'PLE':
-        stream.ple_block(1, payload, petscii_name, start_addr, end_addr, timing)
+        stream.ple_block(
+            1, payload, petscii_name, start_addr, end_addr, timing)
     else:
-        stream.gcr_block(1, payload, petscii_name, start_addr, end_addr, timing)
+        stream.gcr_block(
+            1, payload, petscii_name, start_addr, end_addr, timing)
 
 
-# ─── Output writers ────────────────────────────────────────────────────────────
+# ─── Output writers ──────────────────────────────────────────────────────────
 
 def write_tap(stream: TapeStream, path: str, encoding: str = 'PLE'):
     """
@@ -701,11 +725,13 @@ def write_wav(stream: TapeStream, path: str, opts: 'WavOptions'):
         prev = 0
         for trans_t in stream._transitions:
             interval = trans_t - prev
-            signal[prev:trans_t] = 0.5 if interval > _WAV_MIDPOINT_T else float(state)
+            signal[prev:trans_t] = (
+                0.5 if interval > _WAV_MIDPOINT_T else float(state))
             state ^= 1
             prev = trans_t
         interval = total_t - prev
-        signal[prev:total_t] = 0.5 if interval > _WAV_MIDPOINT_T else float(state)
+        signal[prev:total_t] = (
+            0.5 if interval > _WAV_MIDPOINT_T else float(state))
     else:
         signal = np.zeros(0, dtype=np.float32)
 
@@ -756,7 +782,7 @@ def write_wav(stream: TapeStream, path: str, opts: 'WavOptions'):
         f.write(data)
 
 
-# ─── Per-file options ──────────────────────────────────────────────────────────
+# ─── Per-file options ────────────────────────────────────────────────────────
 
 class FileOptions:
     """Recording options for a single input file."""
@@ -775,7 +801,7 @@ class FileOptions:
         self.exec_addr = DEFAULT_EXEC_ADDR
 
 
-# ─── WAV output options ────────────────────────────────────────────────────────
+# ─── WAV output options ──────────────────────────────────────────────────────
 
 class WavOptions:
     """Options for WAV file output."""
@@ -787,19 +813,21 @@ class WavOptions:
         self.invert = False
 
 
-# ─── Argument parsing ──────────────────────────────────────────────────────────
+# ─── Argument parsing ────────────────────────────────────────────────────────
 
 HELP_TEXT = """\
 TMaster - Tape Master for Commodore 264 series
 
 Usage:
-  tmaster [global args] input_file "recorded_name" [file args] [...] output.{raw|tap|wav}
+  tmaster [global args] input_file "recorded_name" [file args]
+          [...] output.{raw|tap|wav}
 
 Global arguments:
   -h               Show this help text
   -gcr / -ple      Custom encoding (default: PLE)
   -N x             Timing base (default: PLE=14T, GCR=24T)
-  -Cc / -Cu / -Cs  PETSCII conversion: convenient/unshifted/shifted (default: -Cc)
+  -Cc / -Cu / -Cs  PETSCII conversion: convenient/unshifted/shifted
+                   (default: -Cc)
 
 Per-input-file arguments:
   input_file       Source binary file (first two bytes = load address word)
@@ -946,7 +974,8 @@ def parse_commandline(argv: list) -> tuple:
     """
     Parse the full command line.
 
-    Returns (encoding, timing, petscii_method, file_list, output_path, wav_opts)
+    Returns (encoding, timing, petscii_method, file_list,
+             output_path, wav_opts)
     where file_list is a list of (input_path, recorded_name, FileOptions).
     """
     tokens = argv[1:]
@@ -975,7 +1004,9 @@ def parse_commandline(argv: list) -> tuple:
             timing = _parse_int(tokens[i + 1])
             i += 2
         elif t in ('-Cc', '-Cu', '-Cs'):
-            petscii_method = {'c': 'convenient', 'u': 'unshifted', 's': 'shifted'}[t[2]]
+            petscii_method = {
+                'c': 'convenient', 'u': 'unshifted', 's': 'shifted',
+            }[t[2]]
             i += 1
         else:
             break  # end of global section
@@ -1043,14 +1074,15 @@ def parse_commandline(argv: list) -> tuple:
     return encoding, timing, petscii_method, file_list, output_path, wav_opts
 
 
-# ─── Main ──────────────────────────────────────────────────────────────────────
+# ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
     encoding, timing, petscii_method, file_list, output_path, wav_opts = \
         parse_commandline(sys.argv)
 
     if encoding == 'GCR' and any(opts.open_screen for _, _, opts in file_list):
-        print("tmaster: warning: -gcr and -Oy are both in effect", file=sys.stderr)
+        print("tmaster: warning: -gcr and -Oy are both in effect",
+              file=sys.stderr)
 
     stream = TapeStream()
     first = True
@@ -1063,7 +1095,10 @@ def main():
             _die(f"Cannot read '{input_path}': {e}")
 
         if len(file_data) < 2:
-            _die(f"'{input_path}' too short (need at least 2 bytes for load address)")
+            _die(
+                f"'{input_path}' too short"
+                " (need at least 2 bytes for load address)"
+            )
 
         if not first:
             stream.gap(GAP_BETWEEN_FILES)
@@ -1073,9 +1108,12 @@ def main():
 
         if opts.mode == 'bootstrap':
             ext = load_ext(encoding)
-            encode_bootstrap(stream, file_data, petscii_name, encoding, timing, opts, ext)
+            encode_bootstrap(
+                stream, file_data, petscii_name,
+                encoding, timing, opts, ext)
         else:
-            encode_standalone(stream, file_data, petscii_name, encoding, timing)
+            encode_standalone(
+                stream, file_data, petscii_name, encoding, timing)
 
     if output_path.lower().endswith('.tap'):
         write_tap(stream, output_path, encoding)
