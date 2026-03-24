@@ -1,0 +1,1145 @@
+#!/usr/bin/env python3
+"""
+TMaster - Tape Master for Commodore 264 series.
+
+Creates master recording files (.raw, .tap, .wav) for multi-load
+software products.
+
+Usage:
+    tmaster [global args] input_file "recorded_name" [file args]
+            [...] output.{raw|tap|wav}
+
+Full specification: tmaster.spec/tmaster.spec.md
+Encoding formats:  tmaster.spec/recording-formats.md
+TAP container:     tmaster.spec/c16-tap-format.md
+"""
+
+import struct
+import sys
+
+# ─── Kernal tape constants ───────────────────────────────────────────────────
+
+KERNAL_TS = 25       # Short pulse (T)
+KERNAL_TM = 52       # Medium pulse (T)
+KERNAL_TL = 105      # Long pulse (T)
+KERNAL_ROUND1_DEFAULT_LEADIN = 0x4100
+KERNAL_ROUND2_DEFAULT_LEADIN = 0x0100
+KERNAL_TRAILING_LEADIN = 0x00F3
+
+# ─── PLE constants ───────────────────────────────────────────────────────────
+
+PLE_DEFAULT_TS = 14
+PLE_LEADIN_COUNT = 800
+PLE_LEADOUT_COUNT = 160
+
+# ─── GCR constants ───────────────────────────────────────────────────────────
+
+GCR_DEFAULT_TB = 24
+GCR_LEADIN_NYBBLES = 2560
+GCR_LEADOUT_NYBBLES = 512
+
+# 4-bit nybble → 5-bit GCR code (index = nybble value 0x0–0xf)
+GCR_TABLE = [
+    0b01010, 0b01011, 0b10010, 0b10011,  # 0x0–0x3
+    0b01110, 0b01111, 0b10110, 0b10111,  # 0x4–0x7
+    0b01001, 0b11001, 0b11010, 0b11011,  # 0x8–0xb
+    0b01101, 0b11101, 0b11110, 0b10101,  # 0xc–0xf
+]
+
+# ─── Bootstrap timing / gap constants ────────────────────────────────────────
+
+GAP_BSBLOCK1 = 61440
+GAP_BSBLOCK2 = 61440
+GAP_BSBLOCK3 = 61440
+GAP_BETWEEN_FILES = 244000
+
+# ─── Bootstrap patch value constants ─────────────────────────────────────────
+
+OPENSCREEN_YES = 0x2478
+OPENSCREEN_NO = 0x6420
+OPENSCREEN_RST_YES = 0x78
+OPENSCREEN_RST_NO = 0x81
+BORDER_MODIFY_YES = 0x8D
+BORDER_MODIFY_NO = 0x2C
+BORDER_INCR_YES = 0xEE
+BORDER_INCR_NO = 0x2C
+BORDER_UPDATE_ADC = 0x69
+BORDER_UPDATE_EOR = 0x49
+BORDER_RESTORE_YES = 0x8D
+BORDER_RESTORE_NO = 0x2C
+
+DEFAULT_EXEC_ADDR = 0x8703
+DEFAULT_BORDER_UPDATE_VALUE = 0x41
+DEFAULT_BORDER_RESTORE_VALUE = 0xEE
+
+# ─── TAP V2 header constants ─────────────────────────────────────────────────
+
+TAP_MAGIC = b'C16-TAPE-RAW'
+TAP_VERSION = 0x02
+TAP_PLATFORM = 0x02   # C16
+TAP_VIDEO = 0x00      # PAL
+
+# ─── WAV output constants ────────────────────────────────────────────────────
+
+# PAL C16 T-clock rate: crystal / 20 / 8  ≈ 110840.4375 Hz
+_WAV_SOURCE_RATE = 17734470 / 20 / 8
+# Intervals longer than this many T are rendered as DC midpoint (silence)
+_WAV_MIDPOINT_T = 2000
+
+# ─── Embedded external data ──────────────────────────────────────────────────
+# Data from tmaster.spec/ and build/ files, interpreted at code generation
+# time and baked in below.
+
+_PETSCII_LUT = {
+    ' ': 0x20, '!': 0x21, '"': 0x22, '#': 0x23, '$': 0x24, '%': 0x25,
+    '&': 0x26, "'": 0x27, '(': 0x28, ')': 0x29, '*': 0x2A, '+': 0x2B,
+    ',': 0x2C, '-': 0x2D, '.': 0x2E, '/': 0x2F,
+    '0': 0x30, '1': 0x31, '2': 0x32, '3': 0x33, '4': 0x34, '5': 0x35,
+    '6': 0x36, '7': 0x37, '8': 0x38, '9': 0x39,
+    ':': 0x3A, ';': 0x3B, '<': 0x3C, '=': 0x3D, '>': 0x3E, '?': 0x3F,
+    '@': 0x40,
+    'A': 0x41, 'B': 0x42, 'C': 0x43, 'D': 0x44, 'E': 0x45, 'F': 0x46,
+    'G': 0x47, 'H': 0x48, 'I': 0x49, 'J': 0x4A, 'K': 0x4B, 'L': 0x4C,
+    'M': 0x4D, 'N': 0x4E, 'O': 0x4F, 'P': 0x50, 'Q': 0x51, 'R': 0x52,
+    'S': 0x53, 'T': 0x54, 'U': 0x55, 'V': 0x56, 'W': 0x57, 'X': 0x58,
+    'Y': 0x59, 'Z': 0x5A,
+    '[': 0x5B, '£': 0x5C, ']': 0x5D, '↑': 0x5E, '←': 0x5F,
+    '🭹': 0x60, '♠': 0x61, '🭲': 0x62, '🭸': 0x63, '🭷': 0x64, '🭶': 0x65,
+    '🭺': 0x66, '🭱': 0x67, '🭴': 0x68, '╮': 0x69, '╰': 0x6A, '╯': 0x6B,
+    '🭼': 0x6C, '╲': 0x6D, '╱': 0x6E, '🭽': 0x6F, '🭾': 0x70, '●': 0x71,
+    '🭻': 0x72, '♥': 0x73, '🭰': 0x74, '╭': 0x75, '╳': 0x76, '○': 0x77,
+    '♣': 0x78, '🭵': 0x79, '♦': 0x7A, '┼': 0x7B, '🮌': 0x7C, '│': 0x7D,
+    'π': 0x7E, '◥': 0x7F,
+    '▌': 0xA1, '▄': 0xA2, '▔': 0xA3, '▁': 0xA4, '▏': 0xA5, '▒': 0xA6,
+    '▕': 0xA7, '🮏': 0xA8, '◤': 0xA9, '🮇': 0xAA, '├': 0xAB, '▗': 0xAC,
+    '└': 0xAD, '┐': 0xAE, '▂': 0xAF, '┌': 0xB0, '┴': 0xB1, '┬': 0xB2,
+    '┤': 0xB3, '▎': 0xB4, '▍': 0xB5, '🮈': 0xB6, '🮂': 0xB7, '🮃': 0xB8,
+    '▃': 0xB9, '🭿': 0xBA, '▖': 0xBB, '▝': 0xBC, '┘': 0xBD, '▘': 0xBE,
+    '▚': 0xBF,
+}
+
+_PETSCII_LUT_SHIFTED = {
+    ' ': 0x20, '!': 0x21, '"': 0x22, '#': 0x23, '$': 0x24, '%': 0x25,
+    '&': 0x26, "'": 0x27, '(': 0x28, ')': 0x29, '*': 0x2A, '+': 0x2B,
+    ',': 0x2C, '-': 0x2D, '.': 0x2E, '/': 0x2F,
+    '0': 0x30, '1': 0x31, '2': 0x32, '3': 0x33, '4': 0x34, '5': 0x35,
+    '6': 0x36, '7': 0x37, '8': 0x38, '9': 0x39,
+    ':': 0x3A, ';': 0x3B, '<': 0x3C, '=': 0x3D, '>': 0x3E, '?': 0x3F,
+    '@': 0x40,
+    'a': 0x41, 'b': 0x42, 'c': 0x43, 'd': 0x44, 'e': 0x45, 'f': 0x46,
+    'g': 0x47, 'h': 0x48, 'i': 0x49, 'j': 0x4A, 'k': 0x4B, 'l': 0x4C,
+    'm': 0x4D, 'n': 0x4E, 'o': 0x4F, 'p': 0x50, 'q': 0x51, 'r': 0x52,
+    's': 0x53, 't': 0x54, 'u': 0x55, 'v': 0x56, 'w': 0x57, 'x': 0x58,
+    'y': 0x59, 'z': 0x5A,
+    '[': 0x5B, '£': 0x5C, ']': 0x5D, '↑': 0x5E, '←': 0x5F,
+    'A': 0x61, 'B': 0x62, 'C': 0x63, 'D': 0x64, 'E': 0x65, 'F': 0x66,
+    'G': 0x67, 'H': 0x68, 'I': 0x69, 'J': 0x6A, 'K': 0x6B, 'L': 0x6C,
+    'M': 0x6D, 'N': 0x6E, 'O': 0x6F, 'P': 0x70, 'Q': 0x71, 'R': 0x72,
+    'S': 0x73, 'T': 0x74, 'U': 0x75, 'V': 0x76, 'W': 0x77, 'X': 0x78,
+    'Y': 0x79, 'Z': 0x7A,
+    '┼': 0x7B, '🮌': 0x7C, '│': 0x7D, '🮖': 0x7E, '◥': 0x7F,
+    '▌': 0xA1, '▄': 0xA2, '▔': 0xA3, '▁': 0xA4, '▏': 0xA5, '▒': 0xA6,
+    '▕': 0xA7, '🮏': 0xA8, '◤': 0xA9, '🮇': 0xAA, '├': 0xAB, '▗': 0xAC,
+    '└': 0xAD, '┐': 0xAE, '▂': 0xAF, '┌': 0xB0, '┴': 0xB1, '┬': 0xB2,
+    '┤': 0xB3, '▎': 0xB4, '▍': 0xB5, '🮈': 0xB6, '🮂': 0xB7, '🮃': 0xB8,
+    '▃': 0xB9, '🭿': 0xBA, '▖': 0xBB, '▝': 0xBC, '┘': 0xBD, '▘': 0xBE,
+    '▚': 0xBF,
+}
+
+_EXT_PLE = {
+    'O_BOOTEND': 0x00bd,
+    'O_BOOTSTART': 0x00bb,
+    'O_BORDER_INCR': 0x0066,
+    'O_BORDER_MODIFY': 0x00a4,
+    'O_BORDER_MODIFY_MET': 0x00a2,
+    'O_BORDER_MODIFY_VAL': 0x00a3,
+    'O_BORDER_RES_VAL': 0x0078,
+    'O_BORDER_RESTORE': 0x0079,
+    'O_FILENAME': 0x0004,
+    'O_OPENSCREEN': 0x0030,
+    'O_OPENSCREEN_RST': 0x0080,
+    'O_START': 0x008f,
+    'BSBLOCK1': bytes.fromhex(
+        "24 03 26 03 20 20 20 20 20 20 20 20 20 20 20 20"
+        "20 20 20 20 20 20 64 e3 20 8a ff a2 03 bd ea 03"
+        "9d c0 07 bd ee 03 95 2d ca 10 f2 20 10 e9 b0 57"
+        "78 24 e3 20 8d e3 20 09 06 ce 09 ff a9 ff 85 b6"
+        "20 64 06 c9 ff f0 f9 20 60 06 c9 ee d0 e8 20 60"
+        "06 a0 00 84 f5 20 60 06 a0 00 91 2d 45 f5 85 f5"
+        "e6 2d d0 05 e6 2e ee 19 ff a5 2d c5 2f a5 2e e5"
+        "30 90 e2 20 60 06 48 a9 ee 8d 19 ff 20 b0 e3 20"
+        "78 e3 68 c5 f5 f0 03 4c 2b a8 20 93 8a 18 4c 03"
+        "87 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+        "00 00 00 00 00 00 00 09 06 58 ff 00 00 00 00"
+    ),
+    'BSBLOCK2': bytes.fromhex(
+        "48 03"
+    ),
+    'BSBLOCK3': bytes.fromhex(
+        "a9 00 85 e1 85 e2 85 e3 85 e4 a9 4a 85 e6 a9 01"
+        "85 e7 a9 80 85 e4 a9 01 85 e5 20 8b 06 a5 dd 38"
+        "e5 de 86 dd 85 df a5 de 38 e5 dd 18 65 df 85 df"
+        "a9 00 2a 85 e0 4a a5 df 6a c9 a8 b0 c3 20 79 06"
+        "c6 e4 d0 d6 c6 e5 10 d2 a5 e3 c9 02 b0 b2 85 e7"
+        "a5 e2 e9 05 85 e6 60 a9 01 85 b6 20 8b 06 a9 10"
+        "2d 09 ff 8d 09 ff e9 02 0a 26 b6 90 ee a5 b6 60"
+        "18 a5 df 65 e1 85 e1 a5 e0 65 e2 85 e2 90 02 e6"
+        "e3 60 a9 10 24 01 f0 fc ae 04 ff 86 de a6 e6 a4"
+        "e7 24 01 d0 fc 8e 02 ff 8c 03 ff ae 04 ff ad 19"
+        "ff 18 49 41 8d 19 ff 60"
+    ),
+}
+
+_EXT_GCR = {
+    'O_BOOTEND': 0x00bd,
+    'O_BOOTSTART': 0x00bb,
+    'O_BORDER_INCR': 0x0068,
+    'O_BORDER_MODIFY': 0x0092,
+    'O_BORDER_MODIFY_MET': 0x0090,
+    'O_BORDER_MODIFY_VAL': 0x0091,
+    'O_BORDER_RES_VAL': 0x007a,
+    'O_BORDER_RESTORE': 0x007b,
+    'O_FILENAME': 0x0004,
+    'O_OPENSCREEN': 0x0030,
+    'O_OPENSCREEN_RST': 0x0082,
+    'O_START': 0x0091,
+    'BSBLOCK1': bytes.fromhex(
+        "24 03 26 03 20 20 20 20 20 20 20 20 20 20 20 20"
+        "20 20 20 20 20 20 64 e3 20 8a ff a2 03 bd ea 03"
+        "9d c0 07 bd ee 03 95 2d ca 10 f2 20 10 e9 b0 59"
+        "20 64 e3 20 8d e3 20 09 06 ce 09 ff a9 ff 85 b6"
+        "85 d7 20 c3 06 c9 ff f0 f9 20 ed 06 c9 ee d0 e6"
+        "20 ed 06 a0 00 84 f5 20 ed 06 a0 00 91 2d 45 f5"
+        "85 f5 e6 2d d0 05 e6 2e ee 19 ff a5 2d c5 2f a5"
+        "2e e5 30 90 e2 20 ed 06 48 a9 ee 8d 19 ff 20 b0"
+        "e3 20 78 e3 68 c5 f5 f0 03 4c 2b a8 20 93 8a 18"
+        "4c 03 87 08 00 01 ff 0c 04 05 ff ff 02 03 ff 0f"
+        "06 07 ff 09 0a 0b ff 0d 0e 00 00 00 00 00 00 00"
+        "00 00 00 00 00 00 00 09 06 fb fe 00 00 00 00"
+    ),
+    'BSBLOCK2': bytes.fromhex(
+        "48 03"
+    ),
+    'BSBLOCK3': bytes.fromhex(
+        "0e 13 ff 8e 02 ff 8e 04 ff 8e 03 ff 8e 05 ff 6e"
+        "13 ff a9 80 85 da 85 db a9 00 85 d8 85 d9 85 dc"
+        "85 dd 85 e4 a9 10 85 e5 a2 00 20 75 06 20 af 06"
+        "e8 20 75 06 d0 dc 20 af 06 a5 d6 d0 d5 a5 d4 e5"
+        "d5 b0 02 49 ff c9 40 b0 c9 c6 e4 d0 db c6 e5 d0"
+        "d7 18 a5 dc 65 dd 6a 85 e6 a8 38 e5 dd 85 e7 98"
+        "4a a8 65 e7 85 d8 98 e5 e7 85 d9 60 bd ad 06 8d"
+        "7f 06 a9 10 24 01 f0 fc 0e 13 ff ad 02 ff ac 05"
+        "ff 6e 13 ff 95 d0 94 d2 8a 49 01 a8 ad 19 ff 18"
+        "49 41 8d 19 ff b9 d0 00 f5 d0 95 d4 b9 d2 00 f5"
+        "d2 95 d6 60 f0 d0 18 b5 d4 75 d8 95 d8 90 0a a9"
+        "0f 75 da 95 da 90 02 f6 dc 60 b5 d6 10 11 8a 49"
+        "01 aa 20 75 06 b5 d4 f5 d8 95 d4 b0 02 d6 d6 b5"
+        "d4 38 e5 e6 95 d4 b5 d6 e9 00 95 d6 a5 b6 2a 49"
+        "01 85 b6 60 20 fe 06 0a 0a 0a 0a 85 b7 20 fe 06"
+        "29 0f 05 b7 60 a9 08 85 b6 20 c3 06 90 fb 29 1f"
+        "a8 b9 bd 03 60"
+    ),
+}
+
+
+# ─── Error helper ────────────────────────────────────────────────────────────
+
+def _die(msg: str):
+    print(f"tmaster: error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+# ─── Ext data accessor ───────────────────────────────────────────────────────
+
+def load_ext(encoding: str) -> dict:
+    """
+    Return bootstrap blocks and patch offsets for the given encoding.
+
+    Returns a dict with:
+      'BSBLOCK1', 'BSBLOCK2', 'BSBLOCK3' → bytearray (fresh mutable copy)
+      'O_FILENAME', 'O_BOOTSTART', ... → int (hex offsets)
+    """
+    raw = {'PLE': _EXT_PLE, 'GCR': _EXT_GCR}.get(encoding.upper())
+    if raw is None:
+        _die(f"Unknown encoding '{encoding}'")
+    result = {}
+    for k, v in raw.items():
+        result[k] = bytearray(v) if isinstance(v, (bytes, bytearray)) else v
+    return result
+
+
+# ─── PETSCII conversion ──────────────────────────────────────────────────────
+
+def to_petscii(name: str, method: str = 'convenient') -> bytes:
+    """
+    Convert a filename to a 16-byte PETSCII-encoded name.
+
+    method='convenient': upcase then look up in unshifted LUT (default)
+    method='unshifted':  look up in unshifted LUT as-is
+    method='shifted':    look up in shifted LUT as-is
+
+    Characters with no PETSCII equivalent are replaced by space and a
+    warning is printed to stderr.
+    """
+    name = name[:16]
+    if method == 'convenient':
+        name = name.upper()
+        lut = _PETSCII_LUT
+    elif method == 'unshifted':
+        lut = _PETSCII_LUT
+    else:
+        lut = _PETSCII_LUT_SHIFTED
+    name = name.ljust(16)
+    space_code = lut.get(' ', 0x20)
+    result = bytearray(16)
+    for i, ch in enumerate(name):
+        code = lut.get(ch)
+        if code is None:
+            print(
+                f"tmaster: warning: '{ch}' has no PETSCII equivalent,"
+                " using space",
+                file=sys.stderr)
+            result[i] = space_code
+        else:
+            result[i] = code & 0xFF
+    return bytes(result)
+
+
+# ─── Tape stream encoder ─────────────────────────────────────────────────────
+
+class TapeStream:
+    """
+    Accumulates a tape bitstream as a sequence of level-transition
+    absolute times.
+
+    Initial state is L (logic 0) at t=0. Each entry in _transitions marks
+    the absolute time at which the level flips. Methods map to the encoding
+    primitives described in tmaster.spec/recording-formats.md.
+    """
+
+    def __init__(self):
+        self._t = 0             # current time (T units)
+        self._state = 0         # current level: 0=L, 1=H
+        self._transitions = []  # sorted list of absolute flip times
+
+    # ── Low-level primitives ───────────────────────────────────────────────
+
+    def gap(self, duration: int):
+        """Advance time with no level change (silent region)."""
+        self._t += duration
+
+    def _flip(self, duration: int):
+        """Spend `duration` T at the current level, then flip."""
+        self._t += duration
+        self._transitions.append(self._t)
+        self._state ^= 1
+
+    def _pulse(self, half_period: int):
+        """
+        Emit one full pulse: current level for half_period, then opposite
+        for half_period, returning to the original level.
+        """
+        self._flip(half_period)
+        self._flip(half_period)
+
+    # ── Kernal tape encoding ───────────────────────────────────────────────
+
+    def _kernal_bit(self, bit: int):
+        """Kernal '0' bit = Ts+Tm pulses; '1' bit = Tm+Ts pulses."""
+        if bit == 0:
+            self._pulse(KERNAL_TS)
+            self._pulse(KERNAL_TM)
+        else:
+            self._pulse(KERNAL_TM)
+            self._pulse(KERNAL_TS)
+
+    def _kernal_byte(self, value: int):
+        """Kernal byte: Start symbol + 8 data bits LSB-first + odd parity."""
+        self._pulse(KERNAL_TL)   # Start: Tl pulse
+        self._pulse(KERNAL_TM)   # then Tm pulse
+        for i in range(8):
+            self._kernal_bit((value >> i) & 1)
+        # Odd parity: 1 if popcount(value) is even
+        self._kernal_bit(1 - (bin(value).count('1') % 2))
+
+    def kernal_block(self, round_num: int, n_leadin: int,
+                     block_type: int, block_data: bytes):
+        """
+        Encode a complete Kernal tape block.
+
+        Args:
+            round_num:  1 or 2 (determines countdown byte values)
+            n_leadin:   number of lead-in pulses (pulse of Ts each)
+            block_type: 0–255; value 0 is not emitted but still
+                XORed into checksum
+            block_data: raw payload bytes
+        """
+        # Lead-in
+        for _ in range(n_leadin):
+            self._pulse(KERNAL_TS)
+        # Countdown bytes: 0x89..0x81 (round 1) or 0x09..0x01 (round 2)
+        start = 0x89 if round_num == 1 else 0x09
+        for val in range(start, start - 9, -1):
+            self._kernal_byte(val)
+        # Block type (omitted from stream when 0, but included in checksum)
+        if block_type != 0:
+            self._kernal_byte(block_type)
+        # Payload + running checksum
+        checksum = block_type
+        for b in block_data:
+            self._kernal_byte(b)
+            checksum ^= b
+        self._kernal_byte(checksum)
+        # End pulse (Tm) then trailing lead-in
+        self._pulse(KERNAL_TM)
+        for _ in range(KERNAL_TRAILING_LEADIN):
+            self._pulse(KERNAL_TS)
+
+    # ── PLE custom encoding ────────────────────────────────────────────────
+
+    def _ple_byte(self, value: int, ts: int):
+        """PLE byte: 8 bits MSB-first. '1'=pulse(Ts), '0'=pulse(2*Ts)."""
+        for i in range(7, -1, -1):
+            self._pulse(ts if (value >> i) & 1 else 2 * ts)
+
+    def ple_block(self, block_type: int, payload: bytes,
+                  filename: bytes, start_addr: int, end_addr: int, ts: int):
+        """
+        Encode a complete PLE block.
+
+        Args:
+            block_type: 0=bootstrap, 1=standalone
+            payload:    file content (leading address word already stripped)
+            filename:   PETSCII name (16 bytes; used only for standalone)
+            start_addr: load address (standalone only)
+            end_addr:   end address  (standalone only)
+            ts:         short-pulse duration in T
+        """
+        def _enc(data):
+            for b in data:
+                self._ple_byte(b, ts)
+
+        _enc(bytes([0xFF] * PLE_LEADIN_COUNT))
+        _enc(b'\xFE\xEE')
+        _enc(bytes([block_type]))
+        if block_type == 1:
+            _enc(filename)
+            _enc(struct.pack('<H', start_addr))
+            _enc(struct.pack('<H', end_addr))
+        checksum = 0
+        for b in payload:
+            self._ple_byte(b, ts)
+            checksum ^= b
+        _enc(bytes([checksum]))
+        _enc(bytes([0xFF] * PLE_LEADOUT_COUNT))
+
+    # ── GCR custom encoding ────────────────────────────────────────────────
+
+    def _gcr_bit(self, bit: int, tb: int):
+        """
+        GCR bit: '1' = immediate level flip then Tb gap;
+                 '0' = Tb gap with no flip.
+        """
+        if bit:
+            self._transitions.append(self._t)
+            self._state ^= 1
+        self._t += tb
+
+    def _gcr_nybble(self, gcr5: int, tb: int):
+        """Encode a 5-bit GCR value MSB-first."""
+        for i in range(4, -1, -1):
+            self._gcr_bit((gcr5 >> i) & 1, tb)
+
+    def _gcr_byte(self, value: int, tb: int):
+        """Encode a byte as two 5-bit GCR nybbles (upper nybble first)."""
+        self._gcr_nybble(GCR_TABLE[(value >> 4) & 0xF], tb)
+        self._gcr_nybble(GCR_TABLE[value & 0xF], tb)
+
+    def gcr_block(self, block_type: int, payload: bytes,
+                  filename: bytes, start_addr: int, end_addr: int, tb: int):
+        """
+        Encode a complete GCR block.
+
+        Args:
+            block_type: 0=bootstrap, 1=standalone
+            payload:    file content (leading address word already stripped)
+            filename:   PETSCII name (16 bytes; used only for standalone)
+            start_addr: load address (standalone only)
+            end_addr:   end address  (standalone only)
+            tb:         bit-cell duration in T
+        """
+        for _ in range(GCR_LEADIN_NYBBLES):
+            self._gcr_nybble(0b11111, tb)
+        self._gcr_nybble(0b11110, tb)  # sync nybble
+        self._gcr_byte(0xEE, tb)
+        self._gcr_byte(block_type, tb)
+        if block_type == 1:
+            for b in filename:
+                self._gcr_byte(b, tb)
+            for b in struct.pack('<H', start_addr):
+                self._gcr_byte(b, tb)
+            for b in struct.pack('<H', end_addr):
+                self._gcr_byte(b, tb)
+        checksum = 0
+        for b in payload:
+            self._gcr_byte(b, tb)
+            checksum ^= b
+        self._gcr_byte(checksum, tb)
+        for _ in range(GCR_LEADOUT_NYBBLES):
+            self._gcr_nybble(0b11111, tb)
+
+    # ── Output serialisation ───────────────────────────────────────────────
+
+    def to_tap_payload(self) -> bytes:
+        """
+        Serialise transitions as TAP V2 payload.
+
+        Intervals ≤ 255 T → single byte.
+        Intervals > 255 T → 0x00 marker + 24-bit LE word holding (time × 8).
+        """
+        data = bytearray()
+        prev = 0
+        for t in self._transitions:
+            dt = t - prev
+            if dt <= 255:
+                data.append(dt)
+            else:
+                data.append(0x00)
+                data += struct.pack('<I', dt * 8)[:3]
+            prev = t
+        return bytes(data)
+
+    def to_tap_payload_v1(self) -> bytes:
+        """
+        Serialise transitions as TAP V1 payload (H→L transitions only).
+
+        Since the stream starts at L, H→L transitions are at odd indices
+        in _transitions. Intervals are measured between consecutive H→L
+        transition times (from 0 for the first).
+        Same byte encoding as V2: ≤255 T → single byte; >255 T → 0x00
+        marker + 24-bit LE word holding (time × 8).
+        """
+        data = bytearray()
+        prev = 0
+        for idx, t in enumerate(self._transitions):
+            if idx % 2 == 1:  # H→L transition
+                dt = t - prev
+                if dt <= 255:
+                    data.append(dt)
+                else:
+                    data.append(0x00)
+                    data += struct.pack('<I', dt * 8)[:3]
+                prev = t
+        return bytes(data)
+
+    def to_raw(self) -> bytes:
+        """
+        Serialise as a raw bitstream: one logic level per T,
+        MSB-first in bytes.
+
+        Bit n is in byte[n // 8] at bit position (7 - n % 8).
+        All-zero = L; bits set to 1 where the level is H.
+        """
+        if self._t == 0:
+            return b''
+        raw = bytearray((self._t + 7) // 8)  # all zeros = L
+        state = 0
+        prev = 0
+        for trans_t in self._transitions:
+            if state == 1:
+                _set_h_bits(raw, prev, trans_t)
+            state ^= 1
+            prev = trans_t
+        if self._state == 1:
+            _set_h_bits(raw, prev, self._t)
+        return bytes(raw)
+
+
+def _set_h_bits(raw: bytearray, start_t: int, end_t: int):
+    """Set bits [start_t, end_t) to 1 in a raw bitstream bytearray
+    (MSB-first)."""
+    if start_t >= end_t:
+        return
+    sb = start_t >> 3
+    sp = start_t & 7
+    eb = (end_t - 1) >> 3
+    ep = (end_t - 1) & 7
+    if sb == eb:
+        raw[sb] |= (0xFF >> sp) & (0xFF << (7 - ep)) & 0xFF
+    else:
+        raw[sb] |= 0xFF >> sp
+        if eb > sb + 1:
+            raw[sb + 1:eb] = b'\xFF' * (eb - sb - 1)
+        raw[eb] |= (0xFF << (7 - ep)) & 0xFF
+
+
+# ─── Bootstrap encoding ──────────────────────────────────────────────────────
+
+def _patch_bootstrap(ext: dict, file_data: bytes,
+                     petscii_name: bytes, opts) -> None:
+    """Patch BSBLOCK1 and BSBLOCK3 in-place with per-file bootstrap options."""
+    b1 = ext['BSBLOCK1']
+    b3 = ext['BSBLOCK3']
+
+    # Filename (16 bytes PETSCII)
+    b1[ext['O_FILENAME']:ext['O_FILENAME'] + 16] = petscii_name
+
+    # Load addresses (read start from first word of input file)
+    start_addr = struct.unpack('<H', file_data[:2])[0]
+    end_addr = start_addr + len(file_data) - 2
+    struct.pack_into('<H', b1, ext['O_BOOTSTART'], start_addr)
+    struct.pack_into('<H', b1, ext['O_BOOTEND'], end_addr)
+
+    # Open screen
+    struct.pack_into(
+        '<H', b1, ext['O_OPENSCREEN'],
+        OPENSCREEN_YES if opts.open_screen else OPENSCREEN_NO
+    )
+    b1[ext['O_OPENSCREEN_RST']] = (
+        OPENSCREEN_RST_YES if opts.restore_open_screen
+        else OPENSCREEN_RST_NO
+    )
+
+    # Border stripe (BSBLOCK3)
+    b3[ext['O_BORDER_MODIFY']] = (
+        BORDER_MODIFY_YES if opts.border_stripe else BORDER_MODIFY_NO
+    )
+
+    # Border increment (BSBLOCK1)
+    b1[ext['O_BORDER_INCR']] = (
+        BORDER_INCR_YES if opts.border_incr else BORDER_INCR_NO
+    )
+
+    # Border update method and value (BSBLOCK3)
+    b3[ext['O_BORDER_MODIFY_MET']] = (
+        BORDER_UPDATE_ADC
+        if opts.border_update_method == 'adc'
+        else BORDER_UPDATE_EOR
+    )
+    b3[ext['O_BORDER_MODIFY_VAL']] = opts.border_update_value
+
+    # Border restore (BSBLOCK1)
+    b1[ext['O_BORDER_RESTORE']] = (
+        BORDER_RESTORE_YES if opts.border_restore
+        else BORDER_RESTORE_NO
+    )
+    b1[ext['O_BORDER_RES_VAL']] = opts.border_restore_value
+
+    # Exec address
+    struct.pack_into('<H', b1, ext['O_START'], opts.exec_addr)
+
+
+def encode_bootstrap(stream: TapeStream, file_data: bytes,
+                     petscii_name: bytes, encoding: str,
+                     timing: int, opts, ext: dict):
+    """
+    Encode a bootstrap file:
+      - Three Kernal blocks (BSBLOCK1–3), each in Round 1 + Round 2
+        (or Round 2 only when opts.short_bootstrap is True)
+      - One custom PLE/GCR block (type 0, bootstrap)
+
+    The ext dict is modified in-place; load a fresh copy per call.
+    """
+    _patch_bootstrap(ext, file_data, petscii_name, opts)
+
+    b1 = bytes(ext['BSBLOCK1'])
+    b2 = bytes(ext['BSBLOCK2'])
+    b3 = bytes(ext['BSBLOCK3'])
+
+    if opts.short_bootstrap:
+        # Short mode: Round 2 only, larger lead-ins
+        stream.kernal_block(2, 0x2100, 3, b1)
+        stream.gap(GAP_BSBLOCK1)
+        stream.kernal_block(2, 0x0200, 0, b2)
+        stream.gap(GAP_BSBLOCK2)
+        stream.kernal_block(2, 0x0200, 0, b3)
+        stream.gap(GAP_BSBLOCK3)
+    else:
+        # Normal mode: Round 1 + Round 2 for each block
+        stream.kernal_block(1, 0x2100, 3, b1)
+        stream.kernal_block(2, KERNAL_ROUND2_DEFAULT_LEADIN, 3, b1)
+        stream.gap(GAP_BSBLOCK1)
+        stream.kernal_block(1, 0x0200, 0, b2)
+        stream.kernal_block(2, KERNAL_ROUND2_DEFAULT_LEADIN, 0, b2)
+        stream.gap(GAP_BSBLOCK2)
+        stream.kernal_block(1, 0x0200, 0, b3)
+        stream.kernal_block(2, KERNAL_ROUND2_DEFAULT_LEADIN, 0, b3)
+        stream.gap(GAP_BSBLOCK3)
+
+    # Custom recording block (type 0 = bootstrap)
+    payload = file_data[2:]
+    if encoding == 'PLE':
+        stream.ple_block(0, payload, b'', 0, 0, timing)
+    else:
+        stream.gcr_block(0, payload, b'', 0, 0, timing)
+
+
+def encode_standalone(stream: TapeStream, file_data: bytes,
+                      petscii_name: bytes, encoding: str, timing: int):
+    """Encode a standalone file as a single custom PLE/GCR block (type 1)."""
+    start_addr = struct.unpack('<H', file_data[:2])[0]
+    end_addr = start_addr + len(file_data) - 2
+    payload = file_data[2:]
+    if encoding == 'PLE':
+        stream.ple_block(
+            1, payload, petscii_name, start_addr, end_addr, timing)
+    else:
+        stream.gcr_block(
+            1, payload, petscii_name, start_addr, end_addr, timing)
+
+
+# ─── Output writers ──────────────────────────────────────────────────────────
+
+def write_tap(stream: TapeStream, path: str, encoding: str = 'PLE'):
+    """
+    Write TAP container file.
+
+    PLE encoding uses TAP V1 (H→L transitions only; version byte 0x01).
+    GCR encoding uses TAP V2 (all level-change intervals; version byte 0x02).
+    """
+    if encoding == 'GCR':
+        version = TAP_VERSION   # 0x02
+        payload = stream.to_tap_payload()
+    else:
+        version = 0x01
+        payload = stream.to_tap_payload_v1()
+    with open(path, 'wb') as f:
+        f.write(TAP_MAGIC)
+        f.write(bytes([version, TAP_PLATFORM, TAP_VIDEO, 0x00]))
+        f.write(struct.pack('<I', len(payload)))
+        f.write(payload)
+
+
+def write_raw(stream: TapeStream, path: str):
+    """Write raw bitstream file (one bit per T, MSB-first packed bytes)."""
+    with open(path, 'wb') as f:
+        f.write(stream.to_raw())
+
+
+def write_wav(stream: TapeStream, path: str, opts: 'WavOptions'):
+    """
+    Write a RIFF/WAV file from a TapeStream.
+
+    Renders the bitstream at T-resolution (L=0.0, H=1.0).  Intervals
+    longer than _WAV_MIDPOINT_T T are rendered as DC midpoint (0.5).
+    The signal is resampled from the PAL C16 T-rate to opts.sample_rate
+    using FFT-based resampling (linear phase, minimum aliasing), then
+    quantised to the requested bit depth.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        _die("WAV output requires numpy (pip install numpy)")
+
+    total_t = stream._t
+
+    # Build float32 source signal at T-resolution
+    if total_t > 0:
+        signal = np.empty(total_t, dtype=np.float32)
+        state = 0
+        prev = 0
+        for trans_t in stream._transitions:
+            interval = trans_t - prev
+            signal[prev:trans_t] = (
+                0.5 if interval > _WAV_MIDPOINT_T else float(state))
+            state ^= 1
+            prev = trans_t
+        interval = total_t - prev
+        signal[prev:total_t] = (
+            0.5 if interval > _WAV_MIDPOINT_T else float(state))
+    else:
+        signal = np.zeros(0, dtype=np.float32)
+
+    if opts.invert and total_t > 0:
+        signal = 1.0 - signal
+
+    # Nearest-neighbour resample to target rate (no anti-aliasing)
+    target_n = int(round(total_t * opts.sample_rate / _WAV_SOURCE_RATE))
+    if target_n > 0 and total_t > 0:
+        indices = np.round(
+            np.linspace(0, total_t - 1, target_n)
+        ).astype(np.int64)
+        resampled = signal[indices]
+    else:
+        resampled = np.zeros(max(target_n, 0), dtype=np.float32)
+
+    # Quantise: unsigned 8-bit or signed 16-bit
+    if opts.bit_depth == 8:
+        pcm = np.round(resampled * 255.0).astype(np.uint8)
+    else:
+        pcm = np.round(
+            (resampled * 2.0 - 1.0) * 32767.0
+        ).clip(-32768, 32767).astype(np.int16)
+
+    # Duplicate channel for stereo
+    if opts.channels == 2:
+        pcm = np.repeat(pcm.reshape(-1, 1), 2, axis=1)
+
+    data = pcm.tobytes()
+    bytes_per_sample = opts.bit_depth // 8
+    block_align = bytes_per_sample * opts.channels
+    byte_rate = opts.sample_rate * block_align
+
+    with open(path, 'wb') as f:
+        f.write(b'RIFF')
+        f.write(struct.pack('<I', 36 + len(data)))
+        f.write(b'WAVE')
+        f.write(b'fmt ')
+        f.write(struct.pack('<I', 16))
+        f.write(struct.pack('<H', 1))                   # PCM
+        f.write(struct.pack('<H', opts.channels))
+        f.write(struct.pack('<I', opts.sample_rate))
+        f.write(struct.pack('<I', byte_rate))
+        f.write(struct.pack('<H', block_align))
+        f.write(struct.pack('<H', opts.bit_depth))
+        f.write(b'data')
+        f.write(struct.pack('<I', len(data)))
+        f.write(data)
+
+
+# ─── Per-file options ────────────────────────────────────────────────────────
+
+class FileOptions:
+    """Recording options for a single input file."""
+
+    def __init__(self):
+        self.mode = 'bootstrap'
+        self.short_bootstrap = False
+        self.open_screen = False
+        self.restore_open_screen = True
+        self.border_stripe = True
+        self.border_incr = True
+        self.border_update_method = 'eor'
+        self.border_update_value = DEFAULT_BORDER_UPDATE_VALUE
+        self.border_restore = True
+        self.border_restore_value = DEFAULT_BORDER_RESTORE_VALUE
+        self.exec_addr = DEFAULT_EXEC_ADDR
+
+
+# ─── WAV output options ──────────────────────────────────────────────────────
+
+class WavOptions:
+    """Options for WAV file output."""
+
+    def __init__(self):
+        self.sample_rate = 44100
+        self.channels = 1
+        self.bit_depth = 8
+        self.invert = False
+
+
+# ─── Argument parsing ────────────────────────────────────────────────────────
+
+HELP_TEXT = """\
+TMaster - Tape Master for Commodore 264 series
+
+Usage:
+  tmaster [global args] input_file "recorded_name" [file args]
+          [...] output.{raw|tap|wav}
+
+Global arguments:
+  -h               Show this help text
+  -gcr / -ple      Custom encoding (default: PLE)
+  -N x             Timing base (default: PLE=14T, GCR=24T)
+  -Cc / -Cu / -Cs  PETSCII conversion: convenient/unshifted/shifted
+                   (default: -Cc)
+
+Per-input-file arguments:
+  input_file       Source binary file (first two bytes = load address word)
+  "recorded_name"  Filename on the tape recording
+  -b               Record as bootstrap (default)
+  -s               Record as standalone
+
+Bootstrap options (all optional):
+  -Sy / -Sn        Short bootstrap: omit Round 1 blocks (default: -Sn)
+  -Oy / -On        Bootstrap with open screen (default: -On)
+  -ORy / -ORn      Restore open screen state (default: -ORy)
+  -By / -Bn        Border striping (default: -By; -Bn also sets -BIn -BRn)
+  -BIy / -BIn      Increment border colour (default: -BIy)
+  -BUa / -BUe      Border update method: adc / eor (default: -BUe)
+  -BUV x           Border update value (default: 0x41)
+  -BRy / -BRn      Restore border colour (default: -BRy)
+  -BRV x           Restore colour value (default: 0xee)
+  -E x             Execute address (default: 0x8703)
+  -run             Shortcut: -E 0x8bcd
+  -herc            Shortcut: -BUe -BUV 0x41
+  -her             Shortcut: -BUa -BUV 0x10
+  -axon            Shortcut: -BUa -BUV 0x38
+  -nova            Shortcut: -BUe -BUV 0x7f
+
+Output:
+  output.raw       Raw bitstream (1 bit per T, MSB-first bytes)
+  output.tap       TAP V2 container
+  output.wav       WAV audio file
+
+WAV output arguments (placed after output filename, all optional):
+  -s x             Sampling frequency in Hz (default: 44100)
+  -c x             Channels: 1=mono, 2=stereo (default: 1)
+  -d x             Bit depth: 8=unsigned, 16=signed (default: 8)
+  -i               Invert signal (swap L/H levels)
+"""
+
+_PER_FILE_FLAGS = frozenset({
+    '-b', '-s',
+    '-Sy', '-Sn',
+    '-Oy', '-On',
+    '-ORy', '-ORn',
+    '-By', '-Bn',
+    '-BIy', '-BIn',
+    '-BUa', '-BUe',
+    '-BRy', '-BRn',
+    '-run', '-herc', '-her', '-axon', '-nova',
+})
+_PER_FILE_ARG_FLAGS = frozenset({'-BUV', '-BRV', '-E'})
+
+
+def _parse_int(s: str) -> int:
+    """Parse a decimal or 0x-prefixed hexadecimal integer."""
+    try:
+        return int(s, 16) if s.lower().startswith('0x') else int(s)
+    except ValueError:
+        _die(f"Expected integer, got '{s}'")
+
+
+def _parse_file_options(tokens: list, start: int):
+    """
+    Parse per-file flags starting at tokens[start].
+
+    Returns (FileOptions, next_index).
+    Bootstrap-specific flags are an error when mode is standalone.
+    """
+    opts = FileOptions()
+    bs_opts_used = False
+    i = start
+    while i < len(tokens):
+        t = tokens[i]
+        if t in _PER_FILE_FLAGS:
+            if t == '-b':
+                opts.mode = 'bootstrap'
+            elif t == '-s':
+                opts.mode = 'standalone'
+            else:
+                bs_opts_used = True
+                if t == '-Sy':
+                    opts.short_bootstrap = True
+                elif t == '-Sn':
+                    opts.short_bootstrap = False
+                elif t == '-Oy':
+                    opts.open_screen = True
+                elif t == '-On':
+                    opts.open_screen = False
+                elif t == '-ORy':
+                    opts.restore_open_screen = True
+                elif t == '-ORn':
+                    opts.restore_open_screen = False
+                elif t == '-By':
+                    opts.border_stripe = True
+                elif t == '-Bn':
+                    opts.border_stripe = False
+                    opts.border_incr = False
+                    opts.border_restore = False
+                elif t == '-BIy':
+                    opts.border_incr = True
+                elif t == '-BIn':
+                    opts.border_incr = False
+                elif t == '-BUa':
+                    opts.border_update_method = 'adc'
+                elif t == '-BUe':
+                    opts.border_update_method = 'eor'
+                elif t == '-BRy':
+                    opts.border_restore = True
+                elif t == '-BRn':
+                    opts.border_restore = False
+                elif t == '-run':
+                    opts.exec_addr = 0x8BCD
+                elif t == '-herc':
+                    opts.border_update_method = 'eor'
+                    opts.border_update_value = 0x41
+                elif t == '-her':
+                    opts.border_update_method = 'adc'
+                    opts.border_update_value = 0x10
+                elif t == '-axon':
+                    opts.border_update_method = 'adc'
+                    opts.border_update_value = 0x38
+                elif t == '-nova':
+                    opts.border_update_method = 'eor'
+                    opts.border_update_value = 0x7F
+            i += 1
+        elif t in _PER_FILE_ARG_FLAGS:
+            bs_opts_used = True
+            if i + 1 >= len(tokens):
+                _die(f"Option {t} requires an argument")
+            if t == '-BUV':
+                opts.border_update_value = _parse_int(tokens[i + 1])
+            elif t == '-BRV':
+                opts.border_restore_value = _parse_int(tokens[i + 1])
+            elif t == '-E':
+                opts.exec_addr = _parse_int(tokens[i + 1])
+            i += 2
+        elif t.startswith('-'):
+            _die(f"Unknown per-file option: '{t}'")
+        else:
+            break
+    if opts.mode == 'standalone' and bs_opts_used:
+        _die("Bootstrap options are not applicable to standalone files")
+    return opts, i
+
+
+def parse_commandline(argv: list) -> tuple:
+    """
+    Parse the full command line.
+
+    Returns (encoding, timing, petscii_method, file_list,
+             output_path, wav_opts)
+    where file_list is a list of (input_path, recorded_name, FileOptions).
+    """
+    tokens = argv[1:]
+
+    if not tokens or tokens[0] == '-h':
+        print(HELP_TEXT, end='')
+        sys.exit(0)
+
+    # ── Global arguments ──────────────────────────────────────────────────
+    encoding = 'PLE'
+    timing = None
+    petscii_method = 'convenient'
+    i = 0
+
+    while i < len(tokens):
+        t = tokens[i]
+        if t == '-h':
+            print(HELP_TEXT, end='')
+            sys.exit(0)
+        elif t in ('-gcr', '-ple'):
+            encoding = t[1:].upper()
+            i += 1
+        elif t == '-N':
+            if i + 1 >= len(tokens):
+                _die("-N requires an integer argument")
+            timing = _parse_int(tokens[i + 1])
+            i += 2
+        elif t in ('-Cc', '-Cu', '-Cs'):
+            petscii_method = {
+                'c': 'convenient', 'u': 'unshifted', 's': 'shifted',
+            }[t[2]]
+            i += 1
+        else:
+            break  # end of global section
+
+    # ── Locate output file ────────────────────────────────────────────────
+    output_idx = next(
+        (j for j in range(i, len(tokens))
+         if tokens[j].lower().endswith(('.raw', '.tap', '.wav'))),
+        None
+    )
+    if output_idx is None:
+        _die("No output file specified (must end in .raw, .tap, or .wav)")
+    output_path = tokens[output_idx]
+
+    # ── File list (tokens between global section and output file) ─────────
+    file_list = []
+    j = i
+    while j < output_idx:
+        t = tokens[j]
+        if j + 1 >= output_idx:
+            _die(f"Expected recorded name after input file '{t}'")
+        input_path = t
+        recorded_name = tokens[j + 1]
+        j += 2
+        opts, j = _parse_file_options(tokens, j)
+        file_list.append((input_path, recorded_name, opts))
+
+    if not file_list:
+        _die("No input files specified")
+
+    # ── Output file arguments ─────────────────────────────────────────────
+    wav_opts = WavOptions()
+    j = output_idx + 1
+    is_wav = output_path.lower().endswith('.wav')
+    while j < len(tokens):
+        t = tokens[j]
+        if t == '-i':
+            if not is_wav:
+                _die(f"'{t}' is only applicable to WAV output")
+            wav_opts.invert = True
+            j += 1
+        elif t in ('-s', '-c', '-d'):
+            if not is_wav:
+                _die(f"'{t}' is only applicable to WAV output")
+            if j + 1 >= len(tokens):
+                _die(f"{t} requires an integer argument")
+            val = _parse_int(tokens[j + 1])
+            if t == '-s':
+                wav_opts.sample_rate = val
+            elif t == '-c':
+                if val not in (1, 2):
+                    _die(f"-c must be 1 or 2, got {val}")
+                wav_opts.channels = val
+            else:
+                if val not in (8, 16):
+                    _die(f"-d must be 8 or 16, got {val}")
+                wav_opts.bit_depth = val
+            j += 2
+        else:
+            _die(f"Unknown output argument: '{t}'")
+
+    if timing is None:
+        timing = GCR_DEFAULT_TB if encoding == 'GCR' else PLE_DEFAULT_TS
+
+    return encoding, timing, petscii_method, file_list, output_path, wav_opts
+
+
+# ─── Main ────────────────────────────────────────────────────────────────────
+
+def main():
+    encoding, timing, petscii_method, file_list, output_path, wav_opts = \
+        parse_commandline(sys.argv)
+
+    if encoding == 'GCR' and any(opts.open_screen for _, _, opts in file_list):
+        print("tmaster: warning: -gcr and -Oy are both in effect",
+              file=sys.stderr)
+
+    stream = TapeStream()
+    first = True
+
+    for input_path, recorded_name, opts in file_list:
+        try:
+            with open(input_path, 'rb') as f:
+                file_data = f.read()
+        except OSError as e:
+            _die(f"Cannot read '{input_path}': {e}")
+
+        if len(file_data) < 2:
+            _die(
+                f"'{input_path}' too short"
+                " (need at least 2 bytes for load address)"
+            )
+
+        if not first:
+            stream.gap(GAP_BETWEEN_FILES)
+        first = False
+
+        petscii_name = to_petscii(recorded_name, petscii_method)
+
+        if opts.mode == 'bootstrap':
+            ext = load_ext(encoding)
+            encode_bootstrap(
+                stream, file_data, petscii_name,
+                encoding, timing, opts, ext)
+        else:
+            encode_standalone(
+                stream, file_data, petscii_name, encoding, timing)
+
+    if output_path.lower().endswith('.tap'):
+        write_tap(stream, output_path, encoding)
+    elif output_path.lower().endswith('.wav'):
+        write_wav(stream, output_path, wav_opts)
+    else:
+        write_raw(stream, output_path)
+
+    print(f"Written: {output_path}")
+
+
+if __name__ == '__main__':
+    main()

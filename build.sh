@@ -8,12 +8,20 @@
 # ./build.sh dist		Create source release tarball
 # ./build.sh bdist		Create binary release tarball
 
-# Files to be assembled by default
+# Files to be built by default
 read -r -d '' BFILES <<'EOF'
 tsave.asm
 tload.asm
 tloadtest.asm
-bootstrapmod.asm
+bootstrapmod.ple.asm
+bootstrapmod.gcr.asm
+tmaster
+EOF
+
+# Auxiliary source files (assembled as an intermediate result)
+read -r -d '' AUXFILES <<'EOF'
+bootstrapmod.ple.asm
+bootstrapmod.gcr.asm
 EOF
 
 # Files to be included in the source release archive
@@ -30,6 +38,8 @@ tloadtest.asm
 tsave.asm
 bootstrap.asm
 bootstrapmod.asm
+bootstrapmod.ple.asm
+bootstrapmod.gcr.asm
 EOF
 
 # Files to be included in the binary release archive
@@ -41,6 +51,8 @@ tsave.prg
 tload.prg
 tloadtest.prg
 EOF
+
+BUILDDIR="build"
 
 # Dasm command line options
 DAOPTS="-f3 -v0"
@@ -84,7 +96,9 @@ get_ver_year () {
 
 # Clean build directory
 clean () {
-  rm -f *.prg *.lst *.sym *.tar.gz
+  rm -f *.prg *.old *.tar.gz
+  rm -rf "$BUILDDIR"
+
   for I in *.inc; do
     if [ -L "$I" ]; then
       rm -f "$I";
@@ -92,23 +106,117 @@ clean () {
   done
 }
 
-# Build
+# Assemble source file
+assemble () {
+
+  local file="$1"
+  local path
+
+  if grep -qxF "$file.asm" <<< "$AUXFILES"; then
+    path="$BUILDDIR"
+  else
+    path="."
+  fi
+
+  if ! dasm "$file.asm" \
+	    "-l$BUILDDIR/$file.lst" \
+	    "-o$path/$file.prg" \
+	    "-s$BUILDDIR/$file.sym" \
+	    "-Dmod_$file" \
+	    "$DAOPTS"
+  then
+    echo >&2 "Failed to assemble $filename"
+    exit 1
+  fi
+}
+
+# Extract specified module to offsets and hexdumps
+extractmod () {
+
+  local file="$1"
+  local typ
+  local of="$BUILDDIR/$file.ext"
+  
+  typ="${file##*.}"
+  typ="${typ^^}"
+  
+  echo >&2 "Compiling $of"
+  
+  eval "$(grep '^I_' "$BUILDDIR/$file.sym" | sed -Ee 's/\s+/=0x/')"
+
+  echo "_EXT_$typ = {" > "$of"
+
+  grep '^O_' "$BUILDDIR/$file.sym" \
+  | sed -Ee "s/\s+/'\: 0x/" \
+  | sed -Ee "s/^/    '/" \
+  | sed -Ee "s/\s*$/,/" >> "$of"
+
+  for I in 1 2 3; do
+    echo "    'BSBLOCK${I}': bytes.fromhex(" >> "$of"
+    dd if="$BUILDDIR/$file.prg" \
+       bs=1 \
+       skip="$((I_B${I}S))" \
+       count="$(($((I_B${I}E))-$((I_B${I}S))))" \
+       status=none \
+    | od -An -tx1 \
+    | sed -Ee 's/^\s/        "/g' \
+    | sed -Ee 's/$/"/g' >> "$of"
+    echo "    )," >> "$of"
+  done
+
+  echo "}" >> "$of"
+}
+
+# Patch specified module into tmaster
+patchmod () {
+
+  local file="$1"
+  local typ
+  local s
+  local rep
+  local f
+  local ext
+
+  cp -pf "$file" "$file.new"
+
+  for f in $2; do
+    ext="${f%.*}"
+    typ="${ext##*.}"
+    typ="${typ^^}"
+    s="_EXT_$typ"
+
+    rep=$(sed 's/\\/\\\\/g' "build/$ext.ext" | sed -e '$!s/$/\\/')
+    sed -i "/^\s*${s}\s*=\s*{/,/^\s*}\s*$/ c\\${rep}" "$file.new"
+  done
+
+  mv "$file" "$file.old"
+  mv "$file.new" "$file"
+}
+
+
+# Build specified file(s)
 build () {
 
   local files="$1"
   local file
+  local ext
   local filename
 
 # Need Dasm 2+
   if ! dasm | head -1 | grep -q '^DASM 2\.'; then
-    echo 1>&2 "Need dasm v2+!"
+    echo >&2 "Need dasm v2+!"
     exit 1
+  fi
+
+# Make sure that build dir exists.
+  if [ ! -e "$BUILDDIR" ]; then
+    mkdir "$BUILDDIR"
   fi
 
 # Need version and year in ver.inc
   get_ver_year
   out_ver_inc
-  echo 1>&2 "Building V$VER, year $YEAR"
+  echo >&2 "Building V$VER, year $YEAR"
 
 # Need inc file symlinks if inc files don't exist
   for filename in *.template; do
@@ -120,20 +228,24 @@ build () {
 
   for filename in $files; do
     if [ -e "$filename" ]; then
-      echo "Assembling $filename"
       file="${filename%.*}"
-      if ! dasm "$file.asm" \
-		"-l$file.lst" \
-		"-o$file.prg" \
-		"-s$file.sym" \
-		"-Dmod_$file" \
-		"$DAOPTS"
-      then
-        echo 1>&2 "Failed to assemble $filename"
-        exit 1
-      fi
+      ext="${filename##*.}"
+      case "$ext" in
+        asm)
+          echo >&2 "Assembling $filename"
+          assemble "$file"
+          if [[ "$file" =~ ^bootstrapmod ]]; then
+            extractmod "$file"
+          fi
+        ;;
+        *)
+          echo >&2 "Patching $file"
+          patchmod "$file" "$AUXFILES"
+        ;;
+
+      esac
     else
-      echo 1>&2 "$filename not found"
+      echo >&2 "$filename not found"
       exit 1
     fi
   done
@@ -148,7 +260,7 @@ dist () {
   get_ver_year
   out_ver_inc
   archfile="t-utils-$VER.tar.gz"
-  echo 1>&2 "Building source release dist archive $archfile"
+  echo >&2 "Building source release dist archive $archfile"
   tar --owner=root --group=root -czf "$archfile" $SRFILES
 }
 
@@ -159,7 +271,7 @@ bdist () {
 
   build "$BFILES"
   archfile="t-utils-bin-$VER.tar.gz"
-  echo 1>&2 "Building binary release dist archive $archfile"
+  echo >&2 "Building binary release dist archive $archfile"
   tar --owner=root --group=root -czf "$archfile" $BRFILES
 }
 

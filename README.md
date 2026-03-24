@@ -13,7 +13,7 @@ It consists of:
 
 * tload - a resident tape IRQ loader routine that can be linked into software products
 * tsave - a standalone save routine that produces tload's custom recording format
-* tmaster - a utility to create tape master recordings for production (WIP yet)
+* tmaster - a utility to create tape master recordings for production (crossplatform)
 
 ## How to build
 
@@ -81,7 +81,9 @@ Due to Tedmon's `S` command syntax missing the secondary address parameter, savi
 
 ### tmaster
 
-WIP
+A crossplatform tool in Python, to produce a tape master file in raw, tap, or wav format.
+
+Docs WIP
 
 ### tload
 

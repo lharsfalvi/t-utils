@@ -2,6 +2,8 @@
 *.prg
 *.inc
 *.sym
+*.ext
+*.old
 *.geany
 *.gz
 tmp
