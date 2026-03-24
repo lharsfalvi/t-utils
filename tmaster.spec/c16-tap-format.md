@@ -4,7 +4,7 @@ The TAP format is a container format to represent tape data recordings.
 
 All words are unsigned and little endian.
 
-TAP format assumes that the media's initial logical state is L (0).
+TAP format assumes that the media's initial logic state is L (0).
 
 ## Head
 
@@ -18,7 +18,7 @@ TAP format assumes that the media's initial logical state is L (0).
 ## Data
 
 * Payload is a series of bytes and 24-bit words that represent time
-  spanning between subsequent logical level flips (v2), or, subsequent
+  spanning between subsequent logic level flips (v2), or, subsequent
   H to L transition points (v1) of the source stream, respectively.
 * if time to be stored is less or equal to 255 T, then time is
   represented by a single byte

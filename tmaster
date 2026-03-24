@@ -297,7 +297,7 @@ class TapeStream:
     Accumulates a tape bitstream as a sequence of level-transition
     absolute times.
 
-    Initial state is L (logical 0) at t=0. Each entry in _transitions marks
+    Initial state is L (logic 0) at t=0. Each entry in _transitions marks
     the absolute time at which the level flips. Methods map to the encoding
     primitives described in tmaster.spec/recording-formats.md.
     """
@@ -519,7 +519,7 @@ class TapeStream:
 
     def to_raw(self) -> bytes:
         """
-        Serialise as a raw bitstream: one logical level per T,
+        Serialise as a raw bitstream: one logic level per T,
         MSB-first in bytes.
 
         Bit n is in byte[n // 8] at bit position (7 - n % 8).

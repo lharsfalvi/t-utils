@@ -153,4 +153,3 @@ Format:
 * Block payload data
 * 1 byte checksum, an xor of payload bytes
 * Lead-out: 512 GCR nybbles of '11111'
-

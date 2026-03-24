@@ -10,11 +10,11 @@ Tmaster accepts
 
 * global flags
 * one or more binary files, with additional arguments on how to record
-  them, each
+  them each
 * an output file, with additional arguments on output processing
 
 It encodes the input files according to global and per-file arguments,
-and creates one output file with all specified / encoded content merged,
+and creates a single output file with all specified / encoded content merged,
 according to output file arguments.
 
 ## Additional requirements
@@ -36,7 +36,7 @@ Command line is
 
 tmaster [global arguments] first_input_file [arguments] [...] output_file.{raw|tap|wav} [arguments]
 
-Switches not applicable to particular context should generate an error.
+Switches not applicable to context should generate an error.
 
 
 ### Global switches
@@ -63,7 +63,7 @@ Bootstrap specific arguments (all optional):
 |Argument|Definition|Default|Note|
 |--------|----------|-------|----|
 |-S{y\|n} | Short bootstrap | no | basically omits Round 1 blocks|
-|-O{y\|n} | Bootstrap with open screen | no | only applicable for PLE|
+|-O{y\|n} | Bootstrap with open screen | no | only applicable to PLE|
 |-OR{y\|n} | Restore open screen state | yes ||
 |-B{y\|n} | Border striping | yes | no also implies -BIn and -BRn|
 |-BI{y\|n} | Increment border colour | yes ||
@@ -144,34 +144,34 @@ equivalent PETSCII during conversion.
 
 Short bootstrap flag is not in effect:
 
-  1.)
+  1. )
     * Round 1
     * 0x2100 lead-in pulses
     * Block type = 3
     * Block data is BSBLOCK1
-  2.)
+  2. )
     * Round 2
     * 0x0100 lead-in pulses
     * Block type = 3
     * Block data is BSBLOCK1
     * Gap of 61440 T
-  3.)
+  3. )
     * Round 1
     * 0x0200 lead-in pulses
     * Block type = 0
     * Block data is BSBLOCK2
-  4.)
+  4. )
     * Round 2
     * 0x0100 lead-in pulses
     * Block type = 0
     * Block data is BSBLOCK2
     * Gap of 61440 T
-  5.)
+  5. )
     * Round 1
     * 0x0200 lead-in pulses
     * Block type = 0
     * Block data is BSBLOCK3
-  6.)
+  6. )
     * Round 2
     * 0x0100 lead-in pulses
     * Block type = 0
@@ -180,19 +180,19 @@ Short bootstrap flag is not in effect:
 
 Short bootstrap flag in effect:
 
-  1.)
+  1. )
     * Round 2
     * 0x2100 lead-in pulses
     * Block type = 3
     * Block data is BSBLOCK1
     * Gap of 61440 T
-  2.)
+  2. )
     * Round 2
     * 0x0200 lead-in pulses
     * Block type = 0
     * Block data is BSBLOCK2
     * Gap of 61440 T
-  3.)
+  3. )
     * Round 2
     * 0x0200 lead-in pulses
     * Block type = 0
@@ -212,7 +212,7 @@ File format descriptions can be found in tmaster.spec/recording-formats.md .
 ### Record non-bootstrap data
 
 Record specified input files as GCR / PLE custom standalone blocks
-  
+
 * Block type 1: standalone
 * Converted / adjusted PETSCII filename
 * Payload start address (use leading word of input file)
@@ -222,10 +222,10 @@ Record specified input files as GCR / PLE custom standalone blocks
 ### Output file generation
 
 If specified output file is .raw, output is a simple binary representation
-of the generated stream, one logical level one bit, MSB to LSB.
+of the generated stream, one logic level one bit, MSB to LSB.
 
 If specified output file is .tap, translate stream to time periods between
-logical level changes, or, H to L transitions (tap v2 and v1,
+logic level changes, or, H to L transitions (tap v2 and v1,
 respectively). See: tmaster.spec/c16-tap-format.md
 
 * for GCR in effect, use tap format v2.
