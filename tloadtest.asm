@@ -205,30 +205,3 @@ rstart	jsr CINT
 
 .fnam	DC  "PAYLOAD"
 .fname
-
-	ORG $1c00			; primitive test save
-
-	lda #0
-	sta .t
-.l	lda #$01
-	ldx #$07
-	ldy #$80
-	jsr $ffba
-	lda #.fname-.fnam
-	ldx #<.fnam
-	ldy #>.fnam
-	jsr $ffbd
-	lda #0
-	sta $d0
-	sta $d1
-	lda #$d0
-	ldx #$ff
-	ldy #$ff
-	jsr $ffd8
-	inc .t
-	lda .t
-	cmp #12
-	bne .l
-	jmp $ff52
-
-.t	DC.B 0

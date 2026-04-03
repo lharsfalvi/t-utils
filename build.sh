@@ -12,13 +12,13 @@
 read -r -d '' BFILES <<'EOF'
 tsave.asm
 tload.asm
-tloadtest.asm
 bootstrapmod.ple.asm
 bootstrapmod.gcr.asm
 tmaster
+tloadtest.asm
 EOF
 
-# Auxiliary source files (assembled as an intermediate result)
+# Auxiliary source files (assembled to be intermediate files)
 read -r -d '' AUXFILES <<'EOF'
 bootstrapmod.ple.asm
 bootstrapmod.gcr.asm
@@ -96,7 +96,7 @@ get_ver_year () {
 
 # Clean build directory
 clean () {
-  rm -f *.prg *.old *.tar.gz
+  rm -f *.prg *.tap *.old *.tar.gz
   rm -rf "$BUILDDIR"
 
   for I in *.inc; do
@@ -193,6 +193,25 @@ patchmod () {
   mv "$file.new" "$file"
 }
 
+# Create tap file out of tloadtest.prg and a (predictively) pseudo
+# random payload file.
+buildtap () {
+
+  local file="$1"
+  local pf="$BUILDDIR/testfile.prg"
+  
+  if [ ! -e "$pf" ]; then
+    echo -n -e '\x00\x10' > "$pf"
+    dd if=/dev/zero bs=1 count=49152 status=none \
+    | openssl enc -aes-256-ctr -pass \
+      pass:"$(dd if=/dev/zero bs=128 count=1 status=none | base64)" \
+      -nosalt 2>/dev/null >> "$pf"
+  fi
+
+  python3 tmaster "$file.prg" tloadtest -Sy -run \
+    "$pf" payload -s $file.tap
+
+}
 
 # Build specified file(s)
 build () {
@@ -234,9 +253,14 @@ build () {
         asm)
           echo >&2 "Assembling $filename"
           assemble "$file"
-          if [[ "$file" =~ ^bootstrapmod ]]; then
-            extractmod "$file"
-          fi
+          case "$file" in
+            bootstrapmod*)
+              extractmod "$file"
+            ;;
+            tloadtest*)
+              buildtap "$file"
+            ;;
+          esac
         ;;
         *)
           echo >&2 "Patching $file"

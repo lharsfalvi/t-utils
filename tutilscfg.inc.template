@@ -56,7 +56,7 @@ BORDER_RES	EQU $ee
 
 ; Timer is the time base to use. Nominal values:
 ; GCR --> $c0 (which is also one bit time)
-; PLE --> $70 (*2 --> bit 0, *2*2 --> bit 1)
+; PLE --> $70 (T*2 --> bit 0, T*2*2 --> bit 1)
 
 	IFCONST M_GCR
 T		SET $C0

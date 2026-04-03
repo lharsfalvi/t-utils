@@ -4,6 +4,7 @@
 *.sym
 *.ext
 *.old
+*.tap
 *.geany
 *.gz
 tmp

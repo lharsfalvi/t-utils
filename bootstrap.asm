@@ -400,6 +400,7 @@ readbyte
 ; --> should be preserved
 ; $e6	measured threshold, low
 ; $e7	measured threshold, high
+; (nominal 3*T-6)
 
 readlead
 .rl0	lda #0

@@ -6,7 +6,9 @@ the Commodore 264 series.
 
 ## Overview
 
-Tmaster accepts
+Tmaster encodes an arbitrary number of binary input files into one single
+master output file, according to global arguments, per-input-file
+arguments, and an output file name (and arguments).
 
 * global flags
 * one or more binary files, with additional arguments on how to record
@@ -34,12 +36,18 @@ specified either in decimal or hexadecimal (0x..) .
 
 Command line is
 
-tmaster [global arguments] first_input_file [arguments] [...] output_file.{raw|tap|wav} [arguments]
+tmaster [global arguments] first_input_file_definition [second_input_file_definition] [...] output_file.{raw|tap|wav} [arguments]
 
-Switches not applicable to context should generate an error.
+* global arguments, applicable to the whole process
+* one- or more input file definition and related arguments
+* an output file (filename extension as implicit type) and arguments
 
+Filename behaviour (path, quotation, escaping) follows general Unix
+filename principles.
 
-### Global switches
+Switches not applicable to context generate errors.
+
+### Global arguments
 
 |Argument|Definition|Default|mandatory|
 |--------|----------|-------|---------|
@@ -48,9 +56,9 @@ Switches not applicable to context should generate an error.
 |-N x | Use timing of x * T for custom formats | PLE: 14, GCR: 24 | no |
 |-C{c\|u\|s}| PETSCII conversion method - convenient, unshifted, shifted| convenient | no|
 
-### Per-input file arguments
+### Per-input file definition
 
-Unless started with -h, at least one source file needs to be specified.
+Unless started with -h, at least one input file needs to be specified.
 
 |Argument|Definition|Default|mandatory|
 |--------|----------|-------|---------|
@@ -92,11 +100,11 @@ Warn the user about -gcr and -Oy being in effect at the same time.
 ## Operation
 
 * Eval global switches
-* For each input file, eval specified switches, process and encode
-  input data accordingly, and concat each resulting bit streams,
-  with a gap of 244000 T inbetween.
-* Create an output file according to specified output file name and
-  implicit type declaration.
+* For each input file definition, eval filenames and specified
+  switches, process and encode input data accordingly, and concat
+  resulting bit streams, with a gap of 244000 T inbetween.
+* Create an output file according to specified output file name,
+  type declaration, optional output file arguments.
 
 ### File name conversion
 

@@ -15,7 +15,6 @@
 .cbuf	DS 39			; circular data buffer
 .quant	DS $20			; quantization tables
 	ENDIF
-.restor DS 3			; irq restore temp
 .tbuf	DS 1+16+4		; block type, filename, start/end
 	SEG text
 
@@ -66,64 +65,8 @@ tload_stop
 	DC "V", REL_V
 
 ; filename length in A, pointer in X/Y
-.tload_start
-	stx FNADR
-	sty FNADR+1
-	cmp #$10
-	bcc .ts1
-	lda #$10
-.ts1	sta FNLEN
-	lda #0
-	sta tstat
-	sta tstat_e
-	sta ST
-	sta polar
-	sta cacc
-	sta pstat
-	sta .wcsr
-	sta rcsr
-	jsr .setstatvect
-	lda #$80
-	sta sacc
-	sta $07fc
-	lda #%00001000
-	sta pacc
-	lda #1
-	sta gacc
-
-	sei
-	lda $ff0a
-	ldx $fffe
-	ldy $ffff
-	sta .restor
-	stx .restor+1
-	sty .restor+2
-	lda #<.tload_irq
-	ldx #>.tload_irq
-	sta $fffe
-	stx $ffff
-	jsr .settimers
-	lda #$08
-	sta $ff0a
-	sta $ff09
-	cli
-	rts
-
-.tload_stop
-	php
-	sei
-	lda #$c8
-	sta $01
-	lda .restor
-	sta $ff0a
-	sta $ff09
-	lda .restor+1
-	sta $fffe
-	lda .restor+2
-	sta $ffff
-	plp
-	rts
-
+	IFCONST M_GCR
+; fully GCR specific code
 ; load timers
 .settimers
 	lda #$fc
@@ -320,6 +263,8 @@ tload_stop
 	cpy .wcsr
 	bne .tlpl
 
+; up until this, fully GCR specific IRQ and control code.
+
 .irqe	ldy ystor
 	lda #<.tload_irq
 	sta $fffe
@@ -332,6 +277,110 @@ tload_stop
         pla
         rti
 
+	ENDIF
+
+
+	IFCONST M_PLE		; PLE mode IRQ
+
+.tload_ovrirq			; busy wait overrun irq handler
+	pla
+	pla
+	pla
+	lda #$08
+	sta $ff09
+	bne .tir
+
+.tload_wirq			; tload wait irq handler
+	pha
+	lda #$08
+	sta $ff09
+	lda #$02
+	sta $ff01
+	clc
+	bcc .tiwr
+
+.ti1trap			; trap first 0 bit when tstat = 3
+	lda #$00		; drop bits we've got so far
+	sta sacc
+	sec			; and init byte boundary
+	lda #.ti1-.ttrap-1
+	sta .ttrap		; disable trap
+
+; when CST_RD was 0
+.ti1	rol sacc		; store 0 (or 1 in the case of trap)
+.timwl	EQU *+1
+	lda #0			; set up timer and wait irq handler
+	bit $ff00
+.timwh	EQU *+1
+	lda #0
+	bit $ff01
+	lda #<.tload_wirq
+	bne .ti2
+
+
+.tload_irq
+				; 0-6 IRQ ack delay
+				; 7 IRQ state save + jmp
+	pha			; 3
+	lda $01			; 3
+	cmp #$c8		; CST_RD --> C
+	lda #$08
+	sta $ff09
+.ttrap	EQU *+1
+	bcc .ti1		; CST_RD = 0
+	rol sacc		; CST_RD = 1
+.tiwr	lda #<.tload_ovrirq	; set up overrun irq handler
+	sta $fffe
+	cli			; ~= 1..2T to find the H->L edge
+	lda #$10
+.tiwl	bit $01
+	bne .tiwl
+.timl	EQU *+1
+.tir	lda #0
+	sta $ff00
+.timh	EQU *+1
+	lda #0
+	sta $ff01
+	sei
+	lda #<.tload_irq
+.ti2	sta $fffe
+
+	bcc .noproc
+	lda sacc
+	sta pacc
+	lda #1
+	sta sacc
+	
+	stx xstor
+	sty ystor
+	cli
+
+	lda pacc
+	IFCONST mod_tloadtest
+	sta $ff19
+	ENDIF
+.tjmp	jsr .s_pressplay	; call current state handler
+				; pacc or gacc in A
+	
+	ldy ystor
+	ldx xstor
+.noproc
+	IFCONST mod_tloadtest
+	lda #$ee
+	sta $ff19
+	ENDIF
+
+	pla
+	rti
+
+
+
+	ENDIF
+
+
+
+	IFCONST M_GCR
+; GCR specific process phase
 .process
 	sta cacc
 	lda .ctabj,y
@@ -404,6 +453,10 @@ tload_stop
 .de	sta gacc
 	rts
 
+	ENDIF
+
+
+
 
 ; ---- state machine routines
 
@@ -414,14 +467,21 @@ tload_stop
 	bne .s_exit
 	lda #$c0		; motor on
 	sta $01
+	IFCONST M_GCR
 	lda #$00
 	sta polar		; start by finding a rising edge
+	ENDIF
 	inc tstat_e
 	jmp .incstat
 
 ;01	searching for a lead
 .s_seeklead
+	IFCONST M_GCR
 	cmp #$1f		; pacc in A
+	ENDIF
+	IFCONST M_PLE
+	cmp #$ff		; pacc in A
+	ENDIF
 	bne .s_exit
 	lda #$a0
 	sta tcnt
@@ -429,17 +489,28 @@ tload_stop
 
 ;02	found lead, counting
 .s_countlead
+	IFCONST M_GCR
 	cmp #$1f
+	ENDIF
+	IFCONST M_PLE
+	cmp #$ff
+	ENDIF
 	bne .s_c1
 	dec tcnt
 	beq .s_c2		; countlead exits with tcnt=0
 	rts
 .s_c1	dec tstat
 	jmp .setstatvect
-.s_c2	jmp .incstat
+.s_c2
+	IFCONST M_PLE
+	lda #.ti1trap-.ttrap-1	; set up 0 bit trap
+	sta .ttrap
+	ENDIF
+	jmp .incstat
 
 ;03	found lead, searching for first 0 bit
 .s_findzero
+	IFCONST M_GCR
 	cmp #$1f
 	beq .s_exit
 
@@ -460,12 +531,22 @@ tload_stop
 	adc #$81
 	sta tstat		; also raise GCR decode strobe
 	jmp .setstatvect
+	ENDIF
+	
+	IFCONST M_PLE
+	cmp #$ff		; still lead
+	beq .s_exit
+	cmp #$ee		; got lead-end marker end
+	bne .s_lnf		; or not
+	inc tstat		; we shortcut stat = 04
+	bne .s_lf
+	ENDIF
 
 ;04	read lead's trailing $ee byte
 .s_r_ee
 	cmp #$ee		; gacc in A
 	bne .s_lnf		; $ee found?
-	lda #0
+.s_lf	lda #0
 	sta CHKSUM
 	jmp .incstat		; found, next state
 .s_lnf	lda #1			; ...not found, go back to seeklead
@@ -803,3 +884,104 @@ tload_stop
 	DC.B $ff
 
 	ENDIF
+
+.tload_start
+	stx FNADR
+	sty FNADR+1
+	cmp #$10
+	bcc .ts1
+	lda #$10
+.ts1	sta FNLEN
+	lda #0
+	sta tstat
+	sta tstat_e
+	sta ST
+	sta polar
+	sta cacc
+	sta pstat
+	IFCONST M_GCR
+	sta .wcsr
+	sta rcsr
+	ENDIF
+	jsr .setstatvect
+	lda #$80
+	sta sacc
+	lda #%00001000
+	sta pacc
+	lda #1
+	sta gacc
+
+	sei
+	lda $ff0a
+	ldx $fffe
+	ldy $ffff
+	sta .restor1+1
+	stx .restor2+1
+	sty .restor3+1
+	lda #<.tload_irq
+	ldx #>.tload_irq
+	sta $fffe
+	stx $ffff
+
+	IFCONST M_GCR		; GCR mode timer setup
+
+	jsr .settimers
+
+	ELSE			; PLE mode timer setup
+	
+	lda $e6			; calc timer value from threshold
+	clc			; previously set by stage 1/2/3
+	adc #$06
+	tay
+	lda $e7
+	adc #0
+	lsr
+	tax
+	tya
+	ror
+;	sta .timwl
+	tay
+	sec
+	sbc #44			; static and random/2 timing offset
+	sta .timl
+	sta .timwl
+	sta $ff00
+	txa
+;	sta .timwh
+	sbc #0
+	sta .timh
+	sta .timwh
+	sta $ff01
+
+	lda #.ti1-.ttrap-1	; disable "first 0 bit" trap
+	sta .ttrap
+
+	ENDIF
+
+	lda #$08
+	sta $ff0a
+	sta $ff09
+	cli
+	rts
+
+
+.tload_stop
+	php
+	sei
+	lda #$c8
+	sta $01
+.restor1
+	lda #0
+	sta $ff0a
+	sta $ff09
+.restor2	
+	lda #0
+	sta $fffe
+.restor3
+	lda #0
+	sta $ffff
+	plp
+	rts
+
+
+
