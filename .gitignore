@@ -1,4 +1,5 @@
 *.lst
+*.log
 *.prg
 *.inc
 *.sym

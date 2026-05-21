@@ -208,7 +208,7 @@ buildtap () {
       -nosalt 2>/dev/null >> "$pf"
   fi
 
-  python3 tmaster "$file.prg" tloadtest -Sy -run \
+  python3 tmaster "$file.prg" tloadtest -Sy -Oy -nova -run \
     "$pf" payload -s $file.tap
 
 }

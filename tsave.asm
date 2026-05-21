@@ -66,6 +66,8 @@ tsinst	lda #<tsave
 ; 0: bootstrap: long lead, 0, no filename, no start/end
 ; 1: standard: short lead, 1, filename, start/end addr
 
+; this all is still just partly implemented.
+
 	ALIGN $100
 
 res1_s
