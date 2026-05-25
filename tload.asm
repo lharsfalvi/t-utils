@@ -301,13 +301,14 @@ tload_bin2t
 				; 7 IRQ state save + jmp
 	pha			; 3
 	lda $01			; check if level is already "H" early on
-	cmp #$c8		; at 19 cycles at worst
-	lda #$01
+				; at 19 cycles worst-case
+	cmp #$c9
+	lda #$00
 	sta $ff03		; setup wdt
 	lda #<.twdt_irq		; setup watchdog
 	sta $fffe
 	lda #$10
-	bit $01			; again at 38 cycles at worst
+	bit $01			; again at 38 cycles worst-case
 	sta $ff09
 	cli
 	bcs .tw3		; skip rising edge detect if already H
@@ -315,9 +316,7 @@ tload_bin2t
 
 .tw1	bit $01
 	beq .tw1		; wait until rising edge
-.tw3	IFCONST mod_tloadtest
-	sta $ff19		; border strip if tloadtest
-	ENDIF
+.tw3	inc $ff03
 .tw2	bit $01
 	bne .tw2		; wait until falling edge
 .timl2l EQU *+1
@@ -325,56 +324,52 @@ tload_bin2t
 	sta $ff02		; set timer
 	lsr $ff03		; zero timer2h + get lsb
 
-	sei
-
-.ttrap	beq .tc			; beq is bcs if leading 0 trap is active
-
-	lda #$f0		; upon first 0 bit
-	sta .ttrap		; restore beq at .ttrap
-	lda #0
-	sta sacc		; and reset sacc
-	sec			; let rol insert the leading '1' later
-
 .tc	lda #<.tload_irq	; disengage watchdog
 	sta $fffe
 	rol sacc		; collect data bit
-	bcc .noproc		; see if we've got 8 of them
-
-	lda sacc		; decouple data processing
-	sta pacc
-	lda #1
-	sta sacc
-	cli			; let subsequent sampling happen
-				; while processing
-	stx xstor
-	sty ystor
-	lda pacc
-.tjmp	jsr .s_pressplay	; call current state handler
-				; pacc in A
-	
-	ldy ystor
-	ldx xstor
-
-.noproc
-	IFCONST mod_tloadtest
-	lda #$ee
-	sta $ff19
-	ENDIF
+.ttrap	EQU *+1			; first 0-bit trap
+	bcs .proc		; see if we've got 8 of them
 	pla
 	rti
+
+.ttrapp	sei
+	lda sacc
+	and #$01		; was it 0?
+	beq .ttr1
+	pla			; nope, return
+	rti
+.ttr1	lda #.proc-.ttrap-1	; disable 0-trap
+	sta .ttrap
+	lda #$01		; reset sacc
+	sta sacc
+	pla
+	rti
+	
+.proc	sei
+	tya
+	pha
+	lda sacc		; decouple data processing
+	ldy #1
+	sty sacc
+	cli			; let subsequent sampling happen
+				; while processing
+.tjmp	jsr .s_pressplay	; call current state handler
+				; pacc in A
+	pla
+	tay
+	pla
+	rti
+
 
 .twdt_irq			; watchdog IRQ
 	pla
 	pla
 	pla
-	lda #$02		; set up a fair gap for user code
+	lda #$03		; set up a fair gap for user code
 	sta $ff02
 	sta $ff03
 	lda #$10
 	sta $ff09
-	IFCONST mod_tloadtest
-	sta $ff19
-	ENDIF
 	clc
 	bcc .tc			; record a zero data bit and see you
 
@@ -505,8 +500,12 @@ tload_bin2t
 	jmp .setstatvect
 .s_c2
 	IFCONST M_PLE
-	lda #$b0		; set up leading 0 bit trap
-	sta .ttrap
+	lda #$ff
+	ldy #.ttrapp-.ttrap-1	; set up leading 0 bit trap
+	sei
+	sta sacc
+	sty .ttrap
+	cli
 	ENDIF
 	jmp .incstat
 
@@ -611,15 +610,19 @@ tload_bin2t
 	inc VARTAB+1
 .s_d1	lda VARTAB
 	cmp VARTAB+2
-	lda VARTAB+1
-	sbc VARTAB+3
-	bcs .incstat		; finished, see checksum
-	lda #$04
+	beq .s_d2
+	lda #$04		; key check
 	bit $fd10
-	beq .s_ex
-	inc tstat		; Play released, raise error
+	bne .s_d3
+	rts
+.s_d2	lda VARTAB+1
+	cmp VARTAB+3
+	beq .incstat		; finished, see checksum
+	rts
+
+.s_d3	inc tstat		; Play released, raise error
 	lda CHKSUM
-	eor #$ff
+	adc #$01
 
 ;07	read and compare checksum
 .s_checksum
@@ -641,6 +644,8 @@ tload_bin2t
 	lda #$04		; stay until play is pressed
 	bit $fd10
 	beq .s_complete
+	bit ST
+	bmi .s_complete		; and ST is not cleared
 .s_upr	lda #0			; O.K., start over
 	sta tstat_e
 	sta tstat
@@ -654,9 +659,14 @@ tload_bin2t
 .incstat
 	inc tstat
 .setstatvect
+	IFCONST M_GCR
 	lda tstat
 	and #$7f
 	tay
+	ENDIF
+	IFCONST M_PLE
+	ldy tstat
+	ENDIF
 	lda .sttabl,y
 	sta .tjmp+1
 	lda .sttabh,y
@@ -968,12 +978,12 @@ tload_bin2t
 	sta $ff03
 
 	lda $e6
-	cmp #$4c		; has to be at least $4c
+	cmp #$4e		; has to be at least $4e
 	bcs .ts2
-	lda #$4c
+	lda #$4e
 .ts2	sta .timl2l
 
-	lda #$f0
+	lda #.proc-.ttrap-1
 	sta .ttrap		; reset lead 0 bit trap
 
 	lda #$10

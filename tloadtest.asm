@@ -8,9 +8,9 @@ TLOAD_BSS 	SET $1800	; we explicitly set tload's BSS
 CINT	EQU $ff81
 PRIMM	EQU $ff4f
 
-ST	EQU $90
-tstat_e	EQU $d0
-tstat	EQU $d1
+;ST	EQU $90
+;tstat_e	EQU $d0
+;tstat	EQU $d1
 
 ptr1	EQU $b2
 ptr2	EQU $ac
@@ -31,6 +31,7 @@ blt	EQU $e2
 	SUBROUTINE
 
 refresh
+	stx $ff19
 	txa
 	pha
 	asl
@@ -49,8 +50,8 @@ refresh
 
 	cpx #0
 	beq .dec
-
-	jsr tload_bin2t
+				; print byte as minute:10secsec
+	jsr tload_bin2t		; translate number to digits
 
 	pha
 	txa
@@ -58,7 +59,7 @@ refresh
 	tya
 	pha
 
-	ldy #3
+	ldy #3			; output secs, 10 secs, ':', mins
 .rt1	pla
 	tax
 	lda .digits,x
@@ -77,7 +78,8 @@ refresh
 	sta (ptr2),y
 	jmp .loop
 
-.dec	jsr tload_bin2dec
+				; print byte as decimal
+.dec	jsr tload_bin2dec	; translate number to dec digits
 
 	cmp #0			; Translate leading 0's to spaces
 	bne .rd1
@@ -103,6 +105,7 @@ refresh
 	bpl .rd2
 	bmi .loop
 
+				; print byte as hex
 .hex	pha
 	ldy #0
 	lsr
@@ -120,48 +123,22 @@ refresh
 	sta (ptr2),y
 	bne .loop
 
+				; print as string (look up from dict)
 .string	and #$7f
-	asl
-	pha
-	lda #0
-	sta ptr1+1
+	tay
 	lda .src,x
 	tax
 	lda $00,x
-	asl
-	asl
-	asl
-	pha
-	asl
-	rol ptr1+1
-	sta ptr1
-	pla
 	clc
-	adc ptr1
+	adc .strb,y
+	asl
+	tax
+	lda .msgadd,x
 	sta ptr1
-	bcc .l00
-	inc ptr1+1
-.l00	pla
-	tay
-	lda .strb,y
-	clc
-	adc ptr1
-	sta ptr1
-	lda .strb+1,y
-	adc ptr1+1
+	lda .msgadd+1,x
 	sta ptr1+1
 	ldy #21
 .l0	lda (ptr1),y
-	pha
-	asl
-	rol
-	rol
-	rol
-	and #$03
-	tax
-	pla
-	clc
-	adc .conv,x
 	sta (ptr2),y
 	dey
 	bpl .l0
@@ -215,58 +192,69 @@ refresh
 	DC.W $0e64		; # succeeded
 	DC.W $0e8c		; # failed
 
-.strb	DC.W .extmsg
-	DC.W .intmsg
+.strb	DC.B 0, 5
+;.strb	DC.W .extmsg
+;	DC.W .intmsg
 
 .digits	DC.B '0, '1, '2, '3, '4, '5, '6, '7
 	DC.B '8, '9, 'A, 'B, 'C, 'D, 'E, 'F
 	DC.B $20		; leading 0 hack
-.conv	DC.B $80, 0, 0, $a0
 
-.extmsg	DC "Press play on tape      "
-	DC "Searching               "
-	DC "Loading                 "
-	DC "Finished with error     "
-	DC "Finished with success   "
+; Primitive ASCII to screen code and shifted PETSCII conversion.
+TS	EQM $7f & ( .. + (..>=$60?$a0))
+TP	EQM $ff & ((.. + ((..&$60)==$40?$20)) + ((..&$60)==$60?$e0))
 
-;	    123456789012345678901234		24
-.intmsg DC "Press play on tape      "
-	DC "Seeking lead-in         "
-	DC "Pending validity        "
-	DC "Seeking header start    "
-	DC "Reading leadling $ee    "
-	DC "Reading header          "
-	DC "Reading data            "
-	DC "Reading checksum        "
-	DC "Finished with error     "
-	DC "Finished with success   "
+.extmsg	DV TS "Press play on tape      "
+	DV TS "Searching               "
+	DV TS "Loading                 "
+	DV TS "Finished with error     "
+	DV TS "Finished with success   "
 
+;	       123456789012345678901234		24
+.intmsg DV TS "Press play on tape      "
+	DV TS "Seeking lead-in         "
+	DV TS "Pending validity        "
+	DV TS "Seeking header start    "
+	DV TS "Reading leadling $ee    "
+	DV TS "Reading header          "
+	DV TS "Reading data            "
+	DV TS "Reading checksum        "
+	DV TS "Finished with error     "
+	DV TS "Finished with success   "
+
+.msgadd
+MR	SET 0
+	REPEAT 15
+	DC.W .extmsg+MR
+MR	SET MR+24
+	REPEND
 
 	SUBROUTINE
+
 rstart	jsr CINT
 	jsr PRIMM
 	DC $0e, $08, $0d
-	DC "tLOADTEST",$0d
-	DC "tLOAD v", REL_V
+	DV TP "Tloadtest",$0d
+	DV TP "Tload V", REL_V
 	DC.B $0d,$0d,0
 
 	jsr PRIMM
-	DC "tIMEBASE: $", $0d
+	DV TP "Timebase: $", $0d
 	IFCONST M_GCR
-	DC "sIGNAL ASYMMETRY: $", $0d
+	DV TP "Signal asymmetry: $", $0d
 	ENDIF
 	IFCONST M_PLE
-	DC "tIME THRESHOLD: $", $0d, $0d
+	DV TP "Time threshold: $", $0d, $0d
 	ENDIF
-	DC "sTATE:     $", $0d, $0d
+	DV TP "State:     $", $0d, $0d
 
-	DC "iNT STATE: $", $0d, $0d
+	DV TP "Int state: $", $0d, $0d
 
-	DC "lOADING:     $", $0d
-	DC "bLOCKS LEFT:  ", $0d
-	DC "tIME LEFT: ", $0d, $0d
-	DC "sUCCEEDED: $", $0d
-	DC "fAILED:    $", 0
+	DV TP "Loading:     $", $0d
+	DV TP "Blocks left:", $0d
+	DV TP "Time left:", $0d, $0d
+	DV TP "Succeeded: $", $0d
+	DV TP "Failed:    $", 0
 
 	lda #0
 	sta succ
@@ -277,20 +265,19 @@ rstart	jsr CINT
 	lda $e6
 	bne .r0
 	IFCONST M_GCR
-	lda #$c0
+	lda #T
 	sta $e6
 	lda #0
 	sta $e7
 	ENDIF
 	IFCONST M_PLE
-	lda #$50
+	lda #<(T*3)
 	sta $e6
-	lda #$01
+	lda #>(T*3)
 	sta $e7
 	ENDIF
 
-.r0	ldx #0
-	jsr refresh
+.r0	jsr refresh
 
 .rloop0	jsr tload_init
 	lda #.fname-.fnam
@@ -299,22 +286,42 @@ rstart	jsr CINT
 	sei
 	sta $ff3f
 	jsr tload_start
+	lda $ff0a
+	and #$fe
+	sta $ff0a
+	lda #$00
+	sta $ff0b
 
-.rloop	ldx #2
+.rloop	lda #$02
+	bit $ff09
+	beq .rloop+2
+	sta $ff09
+
+	IFCONST M_GCR
+	ldx #2
+	ENDIF
+	IFCONST M_PLE
+	ldx #3
+	ENDIF
 	jsr refresh
+	lda #$ce
+	sta $ff19
 
 	jsr tload_getprogress
 	sta bll
+	ldy #$de
+	sty $ff19
 	jsr tload_pr2time
 	sta blt
+	lda #$ee
+	sta $ff19
 
-	lda $d0
+	lda tstat_e
 	cmp #3
 	bcc .rloop
-	bne .succ
 
 	lda ST
-	bpl .rloop
+	bpl .succ
 	inc fail
 	lda #0
 	sta ST
