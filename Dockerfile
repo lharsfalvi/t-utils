@@ -22,7 +22,8 @@ DEBIAN_FRONTEND=noninteractive TZ=GMT \
   apt-get install -y --no-install-recommends \
     sudo \
     git \
-    dasm
+    dasm \
+    python3
 apt-get clean
 rm -rf /tmp/* /var/tmp/*
 mkdir -p /build

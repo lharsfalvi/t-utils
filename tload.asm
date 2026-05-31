@@ -562,7 +562,7 @@ tload_bin2t
 .s_ex	rts
 .s_ex2	lda #$c8		; stop motor
 	sta $01
-	bne .s_upr		; finish
+	jmp .s_upr		; finish
 
 ;05	read header, compare filename
 .s_rheader
