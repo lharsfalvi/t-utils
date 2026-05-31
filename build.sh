@@ -18,7 +18,7 @@ tmaster
 tloadtest.asm
 EOF
 
-# Auxiliary source files (assembled to be intermediate files)
+# Auxiliary source files (assembled to yield intermediate files)
 read -r -d '' AUXFILES <<'EOF'
 bootstrapmod.ple.asm
 bootstrapmod.gcr.asm
@@ -40,6 +40,7 @@ bootstrap.asm
 bootstrapmod.asm
 bootstrapmod.ple.asm
 bootstrapmod.gcr.asm
+tmaster
 EOF
 
 # Files to be included in the binary release archive
@@ -50,6 +51,7 @@ ver.inc
 tsave.prg
 tload.prg
 tloadtest.prg
+tmaster
 EOF
 
 BUILDDIR="build"

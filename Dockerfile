@@ -1,15 +1,26 @@
 FROM debian:12-slim
 
-# Supply your own UID, GID, and workdir, at runtime. See basix ex.
-# (provided that the workdir is the current directory):
-# docker run -e USER=$(id -u) -e GROUP=$(id -g) -v $(pwd):/build -it --rm builder [args]
+# Build the container first:
+#
+# docker build -t tbuild:latest .
 
-# Special arg sh, i.e.
-# docker run -e USER=$(id -u) -e GROUP=$(id -g) -v $(pwd):/build -it --rm builder sh
-# drops into the build directory and spawns bash.
+# To run the build.sh script in this Docker environment, supply your
+# own UID, GID, and workdir. See basic example (provided that your
+# workdir is the current directory):
+#
+# docker run -e USER=$(id -u) -e GROUP=$(id -g) -v $(pwd):/build -it --rm tbuild [args]
+
+# There's a special arg 'sh', i.e.
+#
+# docker run -e USER=$(id -u) -e GROUP=$(id -g) -v $(pwd):/build -it --rm tbuild sh
+#
+# It spawns the build environment and drops you into a shell.
 
 # On Windows Docker you might be able to start this up by running this from PowerShell:
-# docker run -v "$pwd:/build" -it --rm builder [args]
+#
+# docker run -v "$pwd:/build" -it --rm tbuild [args]
+#
+# (File ownerships will likely be incorrect.)
 
 ENV LANG=C.UTF-8
 ENV USER=0
