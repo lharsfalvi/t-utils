@@ -52,6 +52,7 @@ tsave.prg
 tload.prg
 tloadtest.prg
 tmaster
+tloadtest.tap
 EOF
 
 BUILDDIR="build"
