@@ -150,9 +150,9 @@ _EXT_PLE = {
     'O_BOOTEND': 0x00bd,
     'O_BOOTSTART': 0x00bb,
     'O_BORDER_INCR': 0x0066,
-    'O_BORDER_MODIFY': 0x00a4,
-    'O_BORDER_MODIFY_MET': 0x00a2,
-    'O_BORDER_MODIFY_VAL': 0x00a3,
+    'O_BORDER_MODIFY': 0x00b1,
+    'O_BORDER_MODIFY_MET': 0x00af,
+    'O_BORDER_MODIFY_VAL': 0x00b0,
     'O_BORDER_RES_VAL': 0x0078,
     'O_BORDER_RESTORE': 0x0079,
     'O_FILENAME': 0x0004,
@@ -164,30 +164,31 @@ _EXT_PLE = {
         "20 20 20 20 20 20 64 e3 20 8a ff a2 03 bd ea 03"
         "9d c0 07 bd ee 03 95 2d ca 10 f2 20 10 e9 b0 57"
         "78 24 e3 20 8d e3 20 09 06 ce 09 ff a9 ff 85 b6"
-        "20 64 06 c9 ff f0 f9 20 60 06 c9 ee d0 e8 20 60"
-        "06 a0 00 84 f5 20 60 06 a0 00 91 2d 45 f5 85 f5"
+        "20 71 06 c9 ff f0 f9 20 6d 06 c9 ee d0 e8 20 6d"
+        "06 a0 00 84 f5 20 6d 06 a0 00 91 2d 45 f5 85 f5"
         "e6 2d d0 05 e6 2e ee 19 ff a5 2d c5 2f a5 2e e5"
-        "30 90 e2 20 60 06 48 a9 ee 8d 19 ff 20 b0 e3 20"
+        "30 90 e2 20 6d 06 48 a9 ee 8d 19 ff 20 b0 e3 20"
         "78 e3 68 c5 f5 f0 03 4c 2b a8 20 93 8a 18 4c 03"
         "87 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
         "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
-        "00 00 00 00 00 00 00 09 06 58 ff 00 00 00 00"
+        "00 00 00 00 00 00 00 09 06 4b ff 00 00 00 00"
     ),
     'BSBLOCK2': bytes.fromhex(
         "48 03"
     ),
     'BSBLOCK3': bytes.fromhex(
-        "a9 00 85 e1 85 e2 85 e3 85 e4 a9 4a 85 e6 a9 01"
-        "85 e7 a9 80 85 e4 a9 01 85 e5 20 8b 06 a5 dd 38"
-        "e5 de 86 dd 85 df a5 de 38 e5 dd 18 65 df 85 df"
-        "a9 00 2a 85 e0 4a a5 df 6a c9 a8 b0 c3 20 79 06"
-        "c6 e4 d0 d6 c6 e5 10 d2 a5 e3 c9 02 b0 b2 85 e7"
-        "a5 e2 e9 05 85 e6 60 a9 01 85 b6 20 8b 06 a9 10"
-        "2d 09 ff 8d 09 ff e9 02 0a 26 b6 90 ee a5 b6 60"
-        "18 a5 df 65 e1 85 e1 a5 e0 65 e2 85 e2 90 02 e6"
-        "e3 60 a9 10 24 01 f0 fc ae 04 ff 86 de a6 e6 a4"
-        "e7 24 01 d0 fc 8e 02 ff 8c 03 ff ae 04 ff ad 19"
-        "ff 18 49 41 8d 19 ff 60"
+        "a9 80 85 e1 a9 00 85 e2 85 e3 85 e4 a9 4a 85 e6"
+        "a9 01 85 e7 a9 01 85 e5 20 98 06 a5 dd 38 e5 de"
+        "86 dd 85 df a5 de 38 e5 dd 18 65 df 85 df a9 00"
+        "2a 85 e0 4a a5 df 6a c9 a8 b0 c5 20 86 06 c6 e4"
+        "d0 d6 c6 e5 10 d2 a5 e3 c9 03 b0 b4 4a 85 e7 aa"
+        "a5 e2 6a 85 e6 e0 01 6a 85 e5 18 65 e6 85 e6 90"
+        "02 e6 e7 60 a9 01 85 b6 20 98 06 a9 10 2d 09 ff"
+        "8d 09 ff e9 02 0a 26 b6 90 ee a5 b6 60 18 a5 df"
+        "65 e1 85 e1 a5 e0 65 e2 85 e2 90 02 e6 e3 60 a9"
+        "10 24 01 f0 fc ae 04 ff 86 de a6 e6 a4 e7 24 01"
+        "d0 fc 8e 02 ff 8c 03 ff ae 04 ff ad 19 ff 18 49"
+        "41 8d 19 ff 60"
     ),
 }
 
@@ -730,7 +731,7 @@ def write_wav(stream: TapeStream, path: str, opts: 'WavOptions'):
     try:
         import numpy as np
     except ImportError:
-        _die("WAV output requires numpy (pip install numpy)")
+        _die("WAV output requires numpy")
 
     total_t = stream._t
 
@@ -832,36 +833,36 @@ class WavOptions:
 # ─── Argument parsing ────────────────────────────────────────────────────────
 
 HELP_TEXT = """\
-TMaster - Tape Master for Commodore 264 series
+TMaster — Tape Master for Commodore 264 series
 
 Usage:
-  tmaster [global args] input_file "recorded_name" [file args]
-          [...] output.{raw|tap|wav}
+  tmaster [global args] source recorded_name [file args]
+          [...] output.{raw|tap|wav} [wav args]
 
 Global arguments:
-  -h               Show this help text
-  -gcr / -ple      Custom encoding (default: PLE)
-  -N x             Timing base (default: PLE=14T, GCR=24T)
+  -h               Print this help text and exit
+  -gcr / -ple      Custom block encoding (default: PLE)
+  -N x             Timing base in T (default: PLE=14, GCR=24)
   -Cc / -Cu / -Cs  PETSCII conversion: convenient/unshifted/shifted
                    (default: -Cc)
 
 Per-input-file arguments:
-  input_file       Source binary file (first two bytes = load address word)
-  "recorded_name"  Filename on the tape recording
+  source           Source binary (first two bytes are the load address)
+  recorded_name    Filename written to the tape recording
   -b               Record as bootstrap (default)
   -s               Record as standalone
 
-Bootstrap options (all optional):
-  -Sy / -Sn        Short bootstrap: omit Round 1 blocks (default: -Sn)
-  -Oy / -On        Bootstrap with open screen (default: -On)
+Bootstrap-specific arguments:
+  -Sy / -Sn        Short bootstrap — omit Round 1 blocks (default: -Sn)
+  -Oy / -On        Open screen (default: -On)
   -ORy / -ORn      Restore open screen state (default: -ORy)
-  -By / -Bn        Border striping (default: -By; -Bn also sets -BIn -BRn)
+  -By / -Bn        Border striping (default: -By; -Bn implies -BIn -BRn)
   -BIy / -BIn      Increment border colour (default: -BIy)
   -BUa / -BUe      Border update method: adc / eor (default: -BUe)
-  -BUV x           Border update value (default: 0x41)
+  -BUV x           Border update value byte (default: 0x41)
   -BRy / -BRn      Restore border colour (default: -BRy)
-  -BRV x           Restore colour value (default: 0xee)
-  -E x             Execute address (default: 0x8703)
+  -BRV x           Restore colour value byte (default: 0xee)
+  -E x             Execute address word (default: 0x8703)
   -run             Shortcut: -E 0x8bcd
   -herc            Shortcut: -BUe -BUV 0x41
   -her             Shortcut: -BUa -BUV 0x10
@@ -869,130 +870,125 @@ Bootstrap options (all optional):
   -nova            Shortcut: -BUe -BUV 0x7f
 
 Output:
-  output.raw       Raw bitstream (1 bit per T, MSB-first bytes)
-  output.tap       TAP V2 container
-  output.wav       WAV audio file
+  output.raw       Raw bitstream (1 bit per T, MSB-first)
+  output.tap       TAP container (v1 for PLE, v2 for GCR)
+  output.wav       RIFF/WAV audio
 
-WAV output arguments (placed after output filename, all optional):
+WAV arguments (after output filename):
   -s x             Sampling frequency in Hz (default: 44100)
-  -c x             Channels: 1=mono, 2=stereo (default: 1)
-  -d x             Bit depth: 8=unsigned, 16=signed (default: 8)
-  -i               Invert signal (swap L/H levels)
+  -c x             Channels: 1 = mono, 2 = stereo (default: 1)
+  -d x             Bit depth: 8 = unsigned, 16 = signed (default: 8)
+  -i               Invert signal
 """
-
-_PER_FILE_FLAGS = frozenset({
-    '-b', '-s',
-    '-Sy', '-Sn',
-    '-Oy', '-On',
-    '-ORy', '-ORn',
-    '-By', '-Bn',
-    '-BIy', '-BIn',
-    '-BUa', '-BUe',
-    '-BRy', '-BRn',
-    '-run', '-herc', '-her', '-axon', '-nova',
-})
-_PER_FILE_ARG_FLAGS = frozenset({'-BUV', '-BRV', '-E'})
 
 
 def _parse_int(s: str) -> int:
-    """Parse a decimal or 0x-prefixed hexadecimal integer."""
+    """Parse a decimal or 0x-prefixed hexadecimal unsigned integer."""
     try:
         return int(s, 16) if s.lower().startswith('0x') else int(s)
     except ValueError:
         _die(f"Expected integer, got '{s}'")
 
 
-def _parse_file_options(tokens: list, start: int):
+def _consume_file_opts(tokens: list, i: int):
     """
-    Parse per-file flags starting at tokens[start].
+    Parse per-file switches beginning at tokens[i].
 
+    Stops at the first token that does not start with '-'.
     Returns (FileOptions, next_index).
-    Bootstrap-specific flags are an error when mode is standalone.
+    Bootstrap-specific switches are an error when mode is standalone.
     """
     opts = FileOptions()
-    bs_opts_used = False
-    i = start
+    bs_used = False
+
     while i < len(tokens):
         t = tokens[i]
-        if t in _PER_FILE_FLAGS:
-            if t == '-b':
-                opts.mode = 'bootstrap'
-            elif t == '-s':
-                opts.mode = 'standalone'
-            else:
-                bs_opts_used = True
-                if t == '-Sy':
-                    opts.short_bootstrap = True
-                elif t == '-Sn':
-                    opts.short_bootstrap = False
-                elif t == '-Oy':
-                    opts.open_screen = True
-                elif t == '-On':
-                    opts.open_screen = False
-                elif t == '-ORy':
-                    opts.restore_open_screen = True
-                elif t == '-ORn':
-                    opts.restore_open_screen = False
-                elif t == '-By':
-                    opts.border_stripe = True
-                elif t == '-Bn':
-                    opts.border_stripe = False
-                    opts.border_incr = False
-                    opts.border_restore = False
-                elif t == '-BIy':
-                    opts.border_incr = True
-                elif t == '-BIn':
-                    opts.border_incr = False
-                elif t == '-BUa':
-                    opts.border_update_method = 'adc'
-                elif t == '-BUe':
-                    opts.border_update_method = 'eor'
-                elif t == '-BRy':
-                    opts.border_restore = True
-                elif t == '-BRn':
-                    opts.border_restore = False
-                elif t == '-run':
-                    opts.exec_addr = 0x8BCD
-                elif t == '-herc':
-                    opts.border_update_method = 'eor'
-                    opts.border_update_value = 0x41
-                elif t == '-her':
-                    opts.border_update_method = 'adc'
-                    opts.border_update_value = 0x10
-                elif t == '-axon':
-                    opts.border_update_method = 'adc'
-                    opts.border_update_value = 0x38
-                elif t == '-nova':
-                    opts.border_update_method = 'eor'
-                    opts.border_update_value = 0x7F
+
+        if t in ('-b', '-s'):
+            opts.mode = 'bootstrap' if t == '-b' else 'standalone'
             i += 1
-        elif t in _PER_FILE_ARG_FLAGS:
-            bs_opts_used = True
+
+        elif t in ('-Sy', '-Sn', '-Oy', '-On', '-ORy', '-ORn',
+                   '-By', '-Bn', '-BIy', '-BIn', '-BUa', '-BUe',
+                   '-BRy', '-BRn', '-run', '-herc', '-her', '-axon', '-nova'):
+            bs_used = True
+            if t == '-Sy':
+                opts.short_bootstrap = True
+            elif t == '-Sn':
+                opts.short_bootstrap = False
+            elif t == '-Oy':
+                opts.open_screen = True
+            elif t == '-On':
+                opts.open_screen = False
+            elif t == '-ORy':
+                opts.restore_open_screen = True
+            elif t == '-ORn':
+                opts.restore_open_screen = False
+            elif t == '-By':
+                opts.border_stripe = True
+            elif t == '-Bn':
+                opts.border_stripe = False
+                opts.border_incr = False
+                opts.border_restore = False
+            elif t == '-BIy':
+                opts.border_incr = True
+            elif t == '-BIn':
+                opts.border_incr = False
+            elif t == '-BUa':
+                opts.border_update_method = 'adc'
+            elif t == '-BUe':
+                opts.border_update_method = 'eor'
+            elif t == '-BRy':
+                opts.border_restore = True
+            elif t == '-BRn':
+                opts.border_restore = False
+            elif t == '-run':
+                opts.exec_addr = 0x8BCD
+            elif t == '-herc':
+                opts.border_update_method = 'eor'
+                opts.border_update_value = 0x41
+            elif t == '-her':
+                opts.border_update_method = 'adc'
+                opts.border_update_value = 0x10
+            elif t == '-axon':
+                opts.border_update_method = 'adc'
+                opts.border_update_value = 0x38
+            elif t == '-nova':
+                opts.border_update_method = 'eor'
+                opts.border_update_value = 0x7F
+            i += 1
+
+        elif t in ('-BUV', '-BRV', '-E'):
+            bs_used = True
             if i + 1 >= len(tokens):
-                _die(f"Option {t} requires an argument")
+                _die(f"{t} requires an argument")
+            val = _parse_int(tokens[i + 1])
             if t == '-BUV':
-                opts.border_update_value = _parse_int(tokens[i + 1])
+                opts.border_update_value = val
             elif t == '-BRV':
-                opts.border_restore_value = _parse_int(tokens[i + 1])
-            elif t == '-E':
-                opts.exec_addr = _parse_int(tokens[i + 1])
+                opts.border_restore_value = val
+            else:
+                opts.exec_addr = val
             i += 2
+
         elif t.startswith('-'):
             _die(f"Unknown per-file option: '{t}'")
+
         else:
-            break
-    if opts.mode == 'standalone' and bs_opts_used:
+            break  # non-switch token: end of per-file options
+
+    if opts.mode == 'standalone' and bs_used:
         _die("Bootstrap options are not applicable to standalone files")
     return opts, i
 
 
 def parse_commandline(argv: list) -> tuple:
     """
-    Parse the full command line.
+    Parse the tmaster command line.
 
-    Returns (encoding, timing, petscii_method, file_list,
-             output_path, wav_opts)
-    where file_list is a list of (input_path, recorded_name, FileOptions).
+    Returns (encoding, timing, petscii_method, file_list, output_path,
+             wav_opts) where file_list is a list of
+             (source_path, recorded_name, FileOptions).
     """
     tokens = argv[1:]
 
@@ -1000,7 +996,7 @@ def parse_commandline(argv: list) -> tuple:
         print(HELP_TEXT, end='')
         sys.exit(0)
 
-    # ── Global arguments ──────────────────────────────────────────────────
+    # ── Global switches ───────────────────────────────────────────────────
     encoding = 'PLE'
     timing = None
     petscii_method = 'convenient'
@@ -1025,11 +1021,11 @@ def parse_commandline(argv: list) -> tuple:
             }[t[2]]
             i += 1
         else:
-            break  # end of global section
+            break  # end of global section; first file definition follows
 
-    # ── Locate output file ────────────────────────────────────────────────
+    # ── Output file: last token ending in a recognised extension ──────────
     output_idx = next(
-        (j for j in range(i, len(tokens))
+        (j for j in range(len(tokens) - 1, i - 1, -1)
          if tokens[j].lower().endswith(('.raw', '.tap', '.wav'))),
         None
     )
@@ -1037,26 +1033,25 @@ def parse_commandline(argv: list) -> tuple:
         _die("No output file specified (must end in .raw, .tap, or .wav)")
     output_path = tokens[output_idx]
 
-    # ── File list (tokens between global section and output file) ─────────
+    # ── Input file definitions ────────────────────────────────────────────
     file_list = []
     j = i
     while j < output_idx:
-        t = tokens[j]
         if j + 1 >= output_idx:
-            _die(f"Expected recorded name after input file '{t}'")
-        input_path = t
+            _die(f"Expected recorded name after source file '{tokens[j]}'")
+        source_path = tokens[j]
         recorded_name = tokens[j + 1]
         j += 2
-        opts, j = _parse_file_options(tokens, j)
-        file_list.append((input_path, recorded_name, opts))
+        opts, j = _consume_file_opts(tokens, j)
+        file_list.append((source_path, recorded_name, opts))
 
     if not file_list:
         _die("No input files specified")
 
     # ── Output file arguments ─────────────────────────────────────────────
     wav_opts = WavOptions()
-    j = output_idx + 1
     is_wav = output_path.lower().endswith('.wav')
+    j = output_idx + 1
     while j < len(tokens):
         t = tokens[j]
         if t == '-i':

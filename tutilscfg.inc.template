@@ -4,7 +4,7 @@
 ; BE SURE TO _COPY_ THIS FILE to 'tutilscfg.inc' in case you want
 ; to customize _your own_ native build's defaults and features.
 ; HANDS OFF this template file, unless you want to change things
-; used by tmaster.py (and you know what you're doing).
+; also used by tmaster (and you know what you're doing).
 
 
 ; Mode is either
@@ -56,7 +56,7 @@ BORDER_RES	EQU $ee
 
 ; Timer is the time base to use. Nominal values:
 ; GCR --> $c0 (which is also one bit time)
-; PLE --> $70 (*2 --> bit 0, *2*2 --> bit 1)
+; PLE --> $70 (T*2 --> "1" bit, T*2*2 --> "0" bit)
 
 	IFCONST M_GCR
 T		SET $C0

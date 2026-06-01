@@ -8,13 +8,13 @@
 
 	SEG.U bss
 	ORG TLOAD_BSS
-
+	IFCONST M_GCR
 .ctabl	DS $100			; runlen
 .ctabj	DS $100			; jump next
 .ctabr	DS $100			; remaining last
 .cbuf	DS 39			; circular data buffer
 .quant	DS $20			; quantization tables
-.restor DS 3			; irq restore temp
+	ENDIF
 .tbuf	DS 1+16+4		; block type, filename, start/end
 	SEG text
 
@@ -32,7 +32,8 @@
 ;05	read header, compare filename
 ;06	read data
 ;07	read and compare checksum
-;08	complete (idle)
+;08	complete (error)
+;09	complete (success)
 
 ;b7	0 --> raw, 1--> GCR
 
@@ -40,7 +41,8 @@
 ;00	waiting for play to be pressed
 ;01	searching
 ;02	found, loading
-;03	ready (success in ST)
+;03	ready (fail, ST=$ff)
+;04	ready (success, ST=0)
 
 ; bitstor
 ;b0	LSB of previously read raw octet
@@ -49,73 +51,37 @@
 ; name ptr in		$af/$b0		FNADR
 
 tload_init
+	IFCONST M_GCR
 	jmp .tload_init
+	ENDIF
+	IFCONST M_PLE
+	rts
+	nop
+	nop
+	ENDIF
 tload_start
 	jmp .tload_start
 tload_stop
 	jmp .tload_stop
+
+	IFCONST TLOAD_PROGRESS
+tload_getprogress
+	jmp .tload_getprogress
+tload_bin2dec
+	jmp .tload_bin2dec
+	IFCONST TLOAD_PTIME
+tload_pr2time
+	jmp .tload_pr2time
+tload_bin2t
+	jmp .tload_bin2t
+	ENDIF
+	ENDIF
 ; Version string
 	DC "V", REL_V
 
 ; filename length in A, pointer in X/Y
-.tload_start
-	stx FNADR
-	sty FNADR+1
-	cmp #$10
-	bcc .ts1
-	lda #$10
-.ts1	sta FNLEN
-	lda #0
-	sta tstat
-	sta tstat_e
-	sta ST
-	sta polar
-	sta cacc
-	sta pstat
-	sta .wcsr
-	sta rcsr
-	jsr .setstatvect
-	lda #$80
-	sta sacc
-	sta $07fc
-	lda #%00001000
-	sta pacc
-	lda #1
-	sta gacc
-
-	sei
-	lda $ff0a
-	ldx $fffe
-	ldy $ffff
-	sta .restor
-	stx .restor+1
-	sty .restor+2
-	lda #<.tload_irq
-	ldx #>.tload_irq
-	sta $fffe
-	stx $ffff
-	jsr .settimers
-	lda #$08
-	sta $ff0a
-	sta $ff09
-	cli
-	rts
-
-.tload_stop
-	php
-	sei
-	lda #$c8
-	sta $01
-	lda .restor
-	sta $ff0a
-	sta $ff09
-	lda .restor+1
-	sta $fffe
-	lda .restor+2
-	sta $ffff
-	plp
-	rts
-
+	IFCONST M_GCR
+; fully GCR specific code
 ; load timers
 .settimers
 	lda #$fc
@@ -312,6 +278,8 @@ tload_stop
 	cpy .wcsr
 	bne .tlpl
 
+; up until this, fully GCR specific IRQ and control code.
+
 .irqe	ldy ystor
 	lda #<.tload_irq
 	sta $fffe
@@ -324,6 +292,92 @@ tload_stop
         pla
         rti
 
+	ENDIF
+
+
+	IFCONST M_PLE		; PLE mode IRQ
+.tload_irq
+				; 0-6 IRQ ack delay
+				; 7 IRQ state save + jmp
+	pha			; 3
+	lda $01			; check if level is already "H" early on
+				; at 19 cycles worst-case
+	cmp #$c9
+	lda #$00
+	sta $ff03		; setup wdt
+	lda #<.twdt_irq		; setup watchdog
+	sta $fffe
+	lda #$10
+	bit $01			; again at 38 cycles worst-case
+	sta $ff09
+	cli
+	bcs .tw3		; skip rising edge detect if already H
+	bne .tw3
+
+.tw1	bit $01
+	beq .tw1		; wait until rising edge
+.tw3	inc $ff03
+.tw2	bit $01
+	bne .tw2		; wait until falling edge
+.timl2l EQU *+1
+	lda #0
+	sta $ff02		; set timer
+	lsr $ff03		; zero timer2h + get lsb
+
+.tc	lda #<.tload_irq	; disengage watchdog
+	sta $fffe
+	rol sacc		; collect data bit
+.ttrap	EQU *+1			; first 0-bit trap
+	bcs .proc		; see if we've got 8 of them
+	pla
+	rti
+
+.ttrapp	sei
+	lda sacc
+	and #$01		; was it 0?
+	beq .ttr1
+	pla			; nope, return
+	rti
+.ttr1	lda #.proc-.ttrap-1	; disable 0-trap
+	sta .ttrap
+	lda #$01		; reset sacc
+	sta sacc
+	pla
+	rti
+	
+.proc	sei
+	tya
+	pha
+	lda sacc		; decouple data processing
+	ldy #1
+	sty sacc
+	cli			; let subsequent sampling happen
+				; while processing
+.tjmp	jsr .s_pressplay	; call current state handler
+				; pacc in A
+	pla
+	tay
+	pla
+	rti
+
+
+.twdt_irq			; watchdog IRQ
+	pla
+	pla
+	pla
+	lda #$03		; set up a fair gap for user code
+	sta $ff02
+	sta $ff03
+	lda #$10
+	sta $ff09
+	clc
+	bcc .tc			; record a zero data bit and see you
+
+	ENDIF
+
+
+	IFCONST M_GCR
+; GCR specific process phase
 .process
 	sta cacc
 	lda .ctabj,y
@@ -396,6 +450,8 @@ tload_stop
 .de	sta gacc
 	rts
 
+	ENDIF
+
 
 ; ---- state machine routines
 
@@ -406,14 +462,23 @@ tload_stop
 	bne .s_exit
 	lda #$c0		; motor on
 	sta $01
-	lda #$00
+	lda #0
+	sta ST			; reset ST
+	sta tstat		; reset tstat
+	IFCONST M_GCR
 	sta polar		; start by finding a rising edge
+	ENDIF
 	inc tstat_e
 	jmp .incstat
 
 ;01	searching for a lead
 .s_seeklead
+	IFCONST M_GCR
 	cmp #$1f		; pacc in A
+	ENDIF
+	IFCONST M_PLE
+	cmp #$ff		; pacc in A
+	ENDIF
 	bne .s_exit
 	lda #$a0
 	sta tcnt
@@ -421,17 +486,32 @@ tload_stop
 
 ;02	found lead, counting
 .s_countlead
+	IFCONST M_GCR
 	cmp #$1f
+	ENDIF
+	IFCONST M_PLE
+	cmp #$ff
+	ENDIF
 	bne .s_c1
 	dec tcnt
 	beq .s_c2		; countlead exits with tcnt=0
-	rts
+	bne .s_exit
 .s_c1	dec tstat
 	jmp .setstatvect
-.s_c2	jmp .incstat
+.s_c2
+	IFCONST M_PLE
+	lda #$ff
+	ldy #.ttrapp-.ttrap-1	; set up leading 0 bit trap
+	sei
+	sta sacc
+	sty .ttrap
+	cli
+	ENDIF
+	jmp .incstat
 
 ;03	found lead, searching for first 0 bit
 .s_findzero
+	IFCONST M_GCR
 	cmp #$1f
 	beq .s_exit
 
@@ -451,20 +531,38 @@ tload_stop
 	clc
 	adc #$81
 	sta tstat		; also raise GCR decode strobe
-	jmp .setstatvect
+	bne .setstatvect
+	ENDIF
+	
+	IFCONST M_PLE
+	cmp #$ff		; still lead
+	beq .s_exit
+	cmp #$ee		; got lead-end marker end
+	bne .s_lnf		; or not
+	inc tstat		; we shortcut stat = 04
+	bne .s_lf
+	ENDIF
 
 ;04	read lead's trailing $ee byte
 .s_r_ee
 	cmp #$ee		; gacc in A
 	bne .s_lnf		; $ee found?
-	lda #0
+.s_lf	lda #0
 	sta CHKSUM
 	jmp .incstat		; found, next state
 .s_lnf	lda #1			; ...not found, go back to seeklead
 	sta tstat
 	jmp .setstatvect
 
-.s_exit	rts
+; datassette key polling upon state handler exit
+.s_exit
+	lda #$04
+	bit $fd10
+	bne .s_ex2		; Play released, reset state
+.s_ex	rts
+.s_ex2	lda #$c8		; stop motor
+	sta $01
+	jmp .s_upr		; finish
 
 ;05	read header, compare filename
 .s_rheader
@@ -497,7 +595,7 @@ tload_stop
 	sta VARTAB,y
 	dey
 	bpl .s_r2
-	jmp .incstat
+	bmi .incstat
 
 ;06	read data
 .s_rdata
@@ -512,32 +610,63 @@ tload_stop
 	inc VARTAB+1
 .s_d1	lda VARTAB
 	cmp VARTAB+2
-	lda VARTAB+1
-	sbc VARTAB+3
-	bcc .s_exit
-	jmp .incstat
+	beq .s_d2
+	lda #$04		; key check
+	bit $fd10
+	bne .s_d3
+	rts
+.s_d2	lda VARTAB+1
+	cmp VARTAB+3
+	beq .incstat		; finished, see checksum
+	rts
+
+.s_d3	inc tstat		; Play released, raise error
+	lda CHKSUM
+	adc #$01
 
 ;07	read and compare checksum
 .s_checksum
+	ldy #$c8		; stop the datassette
+	sty $01
 	inc tstat_e		; Ready!
 	eor CHKSUM
 	beq .s_c0
 	lda #$ff
 .s_c0	sta ST			; 0 on success, $ff on load error
-	lda #$c8		; stop the datassette
-	sta $01
-	jmp .incstat
+	bmi .incstat		; that's an error
 
-;08	complete (idle)
-.s_idle
+	inc tstat		; success, update states
+	inc tstat_e
+	bne .incstat
+
+;08	complete (finished with error)
+.s_error
+	lda #$04		; stay until play is pressed
+	bit $fd10
+	beq .s_complete
+	bit ST
+	bmi .s_complete		; and ST is not cleared
+.s_upr	lda #0			; O.K., start over
+	sta tstat_e
+	sta tstat
+	beq .setstatvect
+
+;09	complete (finished with success)
+.s_complete
 	rts
+
 
 .incstat
 	inc tstat
 .setstatvect
+	IFCONST M_GCR
 	lda tstat
 	and #$7f
 	tay
+	ENDIF
+	IFCONST M_PLE
+	ldy tstat
+	ENDIF
 	lda .sttabl,y
 	sta .tjmp+1
 	lda .sttabh,y
@@ -546,7 +675,34 @@ tload_stop
 
 ; --- end of state machine routines
 
-; tload init. Do static setup. Call once.
+;state handler address tables
+.sttabl
+	DC.B <.s_pressplay
+	DC.B <.s_seeklead
+	DC.B <.s_countlead
+	DC.B <.s_findzero
+	DC.B <.s_r_ee
+	DC.B <.s_rheader
+	DC.B <.s_rdata
+	DC.B <.s_checksum
+	DC.B <.s_error
+	DC.B <.s_complete
+
+.sttabh
+	DC.B >.s_pressplay
+	DC.B >.s_seeklead
+	DC.B >.s_countlead
+	DC.B >.s_findzero
+	DC.B >.s_r_ee
+	DC.B >.s_rheader
+	DC.B >.s_rdata
+	DC.B >.s_checksum
+	DC.B >.s_error
+	DC.B >.s_complete
+
+
+	IFCONST M_GCR
+; GCR specific tload init. Do static setup. Call once.
 ; - Set PAL/NTSC switch.
 ; - Build quantization tables according to tbase and tsym.
 
@@ -732,29 +888,9 @@ tload_stop
 
 	rts
 
-;state handler address tables
-.sttabl
-	DC.B <.s_pressplay
-	DC.B <.s_seeklead
-	DC.B <.s_countlead
-	DC.B <.s_findzero
-	DC.B <.s_r_ee
-	DC.B <.s_rheader
-	DC.B <.s_rdata
-	DC.B <.s_checksum
-	DC.B <.s_idle
+	ENDIF
 
-.sttabh
-	DC.B >.s_pressplay
-	DC.B >.s_seeklead
-	DC.B >.s_countlead
-	DC.B >.s_findzero
-	DC.B >.s_r_ee
-	DC.B >.s_rheader
-	DC.B >.s_rdata
-	DC.B >.s_checksum
-	DC.B >.s_idle
-
+	IFCONST M_GCR
 ;gcr to bin conversion table
 .gcrtobin
 	DC.B $ff		; invalid GCR nybbles = $ff
@@ -789,3 +925,204 @@ tload_stop
 	DC.B $0d		; $1d %11101
 	DC.B $0e		; $1e %11110
 	DC.B $ff
+
+	ENDIF
+
+.tload_start
+	stx FNADR
+	sty FNADR+1
+	cmp #$10
+	bcc .ts1
+	lda #$10
+.ts1	sta FNLEN
+	lda #0
+	sta tstat
+	sta tstat_e
+	sta ST
+	IFCONST M_GCR
+	sta polar
+	sta cacc
+	sta pstat
+	sta .wcsr
+	sta rcsr
+	lda #1
+	sta gacc
+	ENDIF
+	jsr .setstatvect
+	lda #$80
+	sta sacc
+	lda #%00001000
+	sta pacc
+
+	sei
+	lda $ff0a
+	ldx $fffe
+	ldy $ffff
+	sta .restor1+1
+	stx .restor2+1
+	sty .restor3+1
+	lda #<.tload_irq
+	ldx #>.tload_irq
+	sta $fffe
+	stx $ffff
+
+	IFCONST M_GCR		; GCR mode timer setup
+
+	jsr .settimers
+	lda #$08
+
+	ELSE			; PLE mode timer setup
+	
+	lda #$ff
+	sta $ff02
+	sta $ff03
+
+	lda $e6
+	cmp #$4e		; has to be at least $4e
+	bcs .ts2
+	lda #$4e
+.ts2	sta .timl2l
+
+	lda #.proc-.ttrap-1
+	sta .ttrap		; reset lead 0 bit trap
+
+	lda #$10
+
+	ENDIF
+
+	sta $ff0a
+	sta $ff09
+	cli
+	rts
+
+
+.tload_stop
+	php
+	sei
+	lda #$c8
+	sta $01
+.restor1
+	lda #0
+	sta $ff0a
+	sta $ff09
+.restor2	
+	lda #0
+	sta $fffe
+.restor3
+	lda #0
+	sta $ffff
+	plp
+	rts
+
+	IFCONST TLOAD_PROGRESS
+
+; Return number of bytes left to load (rounded up to one page -1 byte)
+; In: -
+; Out: no load in progress --> 0
+;      load in progress    --> bytes left to load + 255 in X/A (l/h)
+
+.tload_getprogress
+	lda tstat_e
+	cmp #$02
+	lda #0
+	tax
+	bcc .gbe
+
+	sec
+	lda VARTAB+2
+	sbc VARTAB
+	tax
+	lda VARTAB+3
+	sbc VARTAB+1
+	tay
+	txa
+	adc #$fe
+	tax
+	tya
+	adc #$00
+
+.gbe	rts
+
+; Return value in A translated to decimal digits in Y/X/A (highest in A)
+
+.tload_bin2dec
+	sec
+	ldx #$ff
+.b21	inx
+	sbc #100
+	bcs .b21
+	adc #100
+	tay
+	txa
+	pha
+	tya
+	ldx #$ff
+.b22	inx
+	sbc #10
+	bcs .b22
+	adc #10
+	tay
+	pla
+	rts
+
+	IFCONST TLOAD_PTIME
+; Mul value in X/A by TMUL constant, and return high byte of
+; result in A. Only 12 MSB's of X/A are taken into account.
+
+.tload_pr2time
+	pha
+	txa
+	lsr
+	lsr
+	lsr
+	lsr
+	sta tmultmp
+	pla
+	tax
+	lda #0
+	ldy #3
+.tm1	lsr tmultmp
+	bcc .tm2
+	adc #TMUL
+.tm2	ror
+	dey
+	bpl .tm1
+	stx tmultmp
+	ldy #7
+.tm3	lsr tmultmp
+	bcc .tm4
+	adc #TMUL
+.tm4	ror
+	dey
+	bpl .tm3
+	rts
+
+; Return value in A translated to three digits of "minute",
+; "ten seconds", "seconds" in A/X/Y, respectively.
+
+.tload_bin2t
+	sec
+	ldx #$ff
+.bt21	inx
+	sbc #60
+	bcs .bt21
+	adc #60
+	tay
+	txa
+	pha
+	tya
+	ldx #$ff
+.bt22	inx
+	sbc #10
+	bcs .bt22
+	adc #10
+	tay
+	pla
+	rts
+
+	ENDIF			; TLOAD_PTIME
+	ENDIF			; TLOAD_PROGRESS
+
+	IFCONST M_PLE
+TLOAD_BSS	SET *
+	ENDIF

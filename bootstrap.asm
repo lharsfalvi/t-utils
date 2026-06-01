@@ -400,10 +400,12 @@ readbyte
 ; --> should be preserved
 ; $e6	measured threshold, low
 ; $e7	measured threshold, high
+; (nominal 3*T)
 
 readlead
-.rl0	lda #0
+.rl0	lda #$80
 	sta $e1			; cumulators
+	lda #0
 	sta $e2
 	sta $e3
 	sta $e4
@@ -411,10 +413,9 @@ readlead
 	sta $e6
 	lda #>(T*3-6)
 	sta $e7			; initial threshold
-	lda #$80
-	sta $e4
-	lda #$01		; number of lead pulses
+	lda #$01		; number of lead pulses $0200
 	sta $e5
+
 
 .rl1	jsr .waitfall
 
@@ -447,13 +448,24 @@ readlead
 	bpl .rl1
 
 	lda $e3
-	cmp #$02
+	cmp #$03		; 4*$70 = $01c0 << $0300
 	bcs .rl0
+	lsr
 	sta $e7
+	tax
 	lda $e2
-	sbc #$05		; threshold adjustment
+	ror
 	sta $e6
-	rts
+	cpx #$01
+	ror
+	sta $e5
+	clc
+	adc $e6
+	sta $e6
+	bcc .rl2
+	inc $e7
+
+.rl2	rts
 
 readbyte
 	lda #$01

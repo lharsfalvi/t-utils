@@ -4,23 +4,43 @@
 	IFCONST mod_tload	; if we're building standalone tload
 		SEG text
 TLOAD_TEXT	SET $f800	; tload code start
+	IFCONST M_GCR
 TLOAD_BSS 	SET $f400	; has to be $100-aligned
 	ENDIF
-
-; Artifically trigger a bit of debug code to be assembled in tload
-;mod_tloadtest	SET 1
+	ENDIF
 
 ; You can modify the variable and BSS segment locations according to
 ; your prod's memory allocation requirements.
 
+; There's a BSS segment (temporary data) used by the GCR code.
 ; The BSS segment needs to persist from the point of calling
-; tload_init up to calling tload_stop (and can be discarded of
-; otherwise). BSS currently takes ~$380 bytes.
+; tload_init up to calling tload_stop (then can be discarded of).
+; BSS currently takes ~$380 bytes.
+
+; BSS for PLE mode (as it's a mere few ten bytes and needs no alignment)
+; is defined implicitly within tload.asm.
+
+
+; Set tload specific options
+
+; adds progress calculator and bin to dec helper. As of now, these are
+; the defaults.
+TLOAD_PROGRESS	EQU 0
+; adds additional progress to time, time to min/sec calculators
+TLOAD_PTIME	EQU 0
+
+
+; Artifically trigger a bit of debug code to be assembled in tload
+;mod_tloadtest	SET 1
+
+
+; Variable names and locations
+; These can be as well overridden as needed
 
 ;!!! Warning !!!:
-; Make sure to copy over values produced by the bootstrap loader in
-; tbase ($e6) and tsym ($e7), in case you need to relocate these
-; variables.
+; If you ever need to relocate tbase (default $e6) and tsym
+; (default $e7), make sure to copy over the values produced by the
+; bootstrap loader (in $e6 and $e7) to the new locations.
 
 ; sourced from standard Kernal variable definitions
 VARTAB	EQU $2d			; 4 bytes
@@ -36,19 +56,34 @@ xstor	EQU $d2			; x register storage
 ystor	EQU $d3			; y register storage
 sacc	EQU $d4			; serial accu (live)
 pacc	EQU $d5			; process accu
-gacc	EQU $d6			; GCR accu
 tcnt	EQU $d7			; temporary and raw bit counter
+tbase	EQU $e6			; timebase
+tsym	EQU $e7			; timebase rising edge (a)symmetry
+
+	IFCONST M_GCR
+gacc	EQU $d6			; GCR accu
 polar	EQU $d8			; edge polarity that we're finding
 cacc	EQU $d9			; counter accu
 pstat	EQU $da			; processing status
 rcsr	EQU $db			; read cursor
-ytmp	EQU $dc			; Y temp
-stmp	EQU $dd			; sample temp
-tbase	EQU $e6			; timebase
-tsym	EQU $e7			; timebase rising edge (a)symmetry
+sytmp	EQU $dc			; Y temp
+tmp	EQU $dd			; sample temp
+	ENDIF
+
+	IFCONST TLOAD_PTIME
+tmultmp EQU $de			; mul temp
+
+; # of bytes to # of seconds multiplier constants
+	IFCONST M_PLE
+TMUL	EQU 256*256/(17734470/20/(3*T)/8)-1
+	ENDIF
+	IFCONST M_GCR
+TMUL	EQU 256*256/(17734470/20/T/10)-1
+	ENDIF
+	ENDIF
 
 ; bit of administration
 	IFNCONST TLOAD_BSS	; set default BSS segment address
-TLOAD_BSS 	SET $f400	; if not set yet.
+TLOAD_BSS 	SET $f400	; if not yet set.
 	ENDIF
 

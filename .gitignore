@@ -1,9 +1,11 @@
 *.lst
+*.log
 *.prg
 *.inc
 *.sym
 *.ext
 *.old
+*.tap
 *.geany
 *.gz
 tmp
