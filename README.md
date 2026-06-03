@@ -188,7 +188,7 @@ The polling mode loader is also responsible of running a speed measurement on th
 
 * Grab the latest binary release bundle from [Releases](releases). (The binary bundles are named `t-utils-bin-<version>.tar.gz` .)
 * Review tload's [configuration file template](tloadcfg.inc.template) for addresses, zeropage locations, and related defaults.
-* Link the `tload.prg` binary into your bootstrap code as a binary blob, and make sure that the code ends up residing at `$f800` at the time it's to be executed first.
+* Link the `tload.prg` binary into your bootstrap code as a binary blob, and make sure that the code ends up residing at `$fa00` at the time it's to be executed first.
 
 ### Integrating tload as a self-built binary blob.
 
@@ -234,7 +234,7 @@ You may want to take a look at the code of [tloadtest](tloadtest.asm) (especiall
 
 Keep in mind to always preserve data written to `tbase` and `tsym` (a.k.a. `$e6` and `$e7` by default) by the polling loader. (You can evict the values between load times, if needed.)
 
-Note: by default, `tload` resides at `$f800`, and it strictly only runs in ROM-off memory configuration. It also uses several zeropage locations from `$d0-$e7`, and a few more Basic and standard Kernal Load variables (see [tloadcfg.inc.template](tloadcfg.inc.template) for details). Assembled code size is less than $300 bytes.
+Note: by default, `tload` resides at `$fa00`, and it strictly only runs in ROM-off memory configuration. It also uses several zeropage locations from `$d0-$e7`, and a few more Basic and standard Kernal Load variables (see [tloadcfg.inc.template](tloadcfg.inc.template) for details). Assembled code size is less than $300 bytes.
 
 ### Display helper routines
 
@@ -377,11 +377,11 @@ The format is using `$1f` GCR nybbles for Lead-in and Lead-out (rather than byte
 
 The GCR IRQ loader runs off Timer 1 (rather than Timer 2). The code uses constant rate sampling to read data, and implements a circular buffer to decouple realtime sampling from actual data processing. Sampling happens at the horizontal line rate (57 single clock cycles). Due to the way the sampling code is implemented (timing is very tight, especially around the TED's blocking DMA's), the screen must not be blanked, and the vertical scroll bits must not be tampered with, while the GCR IRQ loader is running.
 
-For decoding GCR, a couple of precalculated tables are used, which means that the code needs an additional 1K of BSS space to run (located at $f400 and on), and the tables need to be initialized by calling `tload_init` prior to calling `tload_start`. The tables can be discarded of after concluding the data loading process.
+The GCR loader code is larger. By default, it's assembled to run from $f800. Moreover, GCR decoding employs precalculated tables, which means that the code needs an additional 1K of BSS space to run (located at $f400 and on), and the tables need to be initialized by calling `tload_init` prior to calling `tload_start`. The tables can be discarded of after concluding the data loading process.
 
 Loading works on both PAL and NTSC machines.
 
-The GCR polling loader code also produces a measurement for the (a)symmetry of the bootstrap lead-in signal. (Some datassettes happen to employ very asymmetric low-to-high and high-to-low comparator characteristics - as that property is never a critical parameter under regular conditions.) OTOH, the GCR polling loader (unlike the PLE one) won't work with open screens.
+The GCR polling loader code also produces a measurement for the (a)symmetry of the bootstrap lead-in signal. (Some datassettes happen to show very asymmetric low-to-high and high-to-low comparator characteristics, which is a relevant parameter here, but not for the usual encoding schemas (or any of the other 8-bit Commodore platforms whatsoever).) Also, the GCR polling loader (unlike the PLE one) won't work with open screen.
 
 ## Build container
 

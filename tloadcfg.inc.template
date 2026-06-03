@@ -3,9 +3,12 @@
 ; Set start and BSS address for standalone tload module here
 	IFCONST mod_tload	; if we're building standalone tload
 		SEG text
-TLOAD_TEXT	SET $f800	; tload code start
 	IFCONST M_GCR
+TLOAD_TEXT	SET $f800	; tload code start
 TLOAD_BSS 	SET $f400	; has to be $100-aligned
+	ENDIF
+	IFCONST M_PLE
+TLOAD_TEXT	SET $fa00	; tload code start
 	ENDIF
 	ENDIF
 
@@ -15,10 +18,10 @@ TLOAD_BSS 	SET $f400	; has to be $100-aligned
 ; There's a BSS segment (temporary data) used by the GCR code.
 ; The BSS segment needs to persist from the point of calling
 ; tload_init up to calling tload_stop (then can be discarded of).
-; BSS currently takes ~$380 bytes.
+; BSS takes ~$380 bytes.
 
 ; BSS for PLE mode (as it's a mere few ten bytes and needs no alignment)
-; is defined implicitly within tload.asm.
+; is defined implicitly / within tload.asm.
 
 
 ; Set tload specific options
