@@ -54,7 +54,7 @@ BORDER_INC	EQU 0
 BORDER_RES	EQU $ee
 
 
-; Timer is the time base to use. Nominal values:
+; Timer "T" is the time base to use. Nominal values:
 ; GCR --> $c0 (which is also one bit time)
 ; PLE --> $70 (T*2 --> "1" bit, T*2*2 --> "0" bit)
 
