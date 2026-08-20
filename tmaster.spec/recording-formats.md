@@ -89,7 +89,7 @@ Format:
   * payload start address ( 1 word)
   * payload end address (1 word)
 * Block payload data
-* 1 byte checksum, an xor of payload bytes
+* 2 byte checksum, mod-255 end-around-carry Fletcher-16 of payload bytes
 * Lead-out: 160 bytes 0xff
 
 ## Custom GCR recording
@@ -151,5 +151,5 @@ Format:
   * payload start address ( 1 word)
   * payload end address (1 word)
 * Block payload data
-* 1 byte checksum, an xor of payload bytes
+* 2 byte checksum, mod-255 end-around-carry Fletcher-16 of payload bytes
 * Lead-out: 512 GCR nybbles of '11111'

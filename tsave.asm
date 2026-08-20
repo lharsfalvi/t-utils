@@ -264,17 +264,10 @@ tblkout
 .l1	cmp $ff1d
 	bne .l1
 
-	IFCONST M_GCR
 	lda #T
 	sta $ff00
 	lda #0
 	sta $ff01
-	ENDIF
-	IFCONST M_PLE
-	lda #$ff
-	sta $ff02
-	sta $ff03
-	ENDIF
 	dec $ff09
 
 	lda #$05		; $0500*2 lead quintuples
@@ -317,16 +310,22 @@ tblkout
 	cpy #4
 	bne .l5
 
-.l02	ldy #0
-	tya
-	sta $f5
+.l02	ldy #$ff		; reset sum1, sum2
+	sty $f5
+	sty $f6
+	iny
 
 .l3	sta $ff3f
 	lda ($ba),y
 	sta $ff3e
 	tax
-	eor $f5
+	clc			; Fletcher-16 checksum
+	adc $f5
+	adc #0
 	sta $f5
+	adc $f6
+	adc #0
+	sta $f6
 	txa
 	jsr .writecbyte
 
@@ -339,7 +338,9 @@ tblkout
 	sbc $bd
 	bcc .l3
 
-	lda $f5
+	lda $f5			; output checksum bytes
+	jsr .writecbyte
+	lda $f6
 	jsr .writecbyte
 
 	lda #$01		; $0100*2 lead-out quintuples
@@ -446,37 +447,29 @@ bintogcr
 
 ; Bit to be written in C
 .writepulse
-	ldy #T-39
-	bcs .wp1
-	ldy #(T*2)-39
-.wp1	ldx #$80
-
-.wrhalf	lda #$10
+	lda #$08
+	ldx #$80
+.wp1	bit $ff09
+	beq .wp1
+	stx $01
+	stx $ff19
 	sta $ff09
-	asl $ff13
+	ldx #$c2
+	bcs .wp3
 .wp2	bit $ff09
 	beq .wp2
-	lda $ff02
-	eor #$ff
-	sbc #$06
-	sta .wp3
-.wp3	EQU *+1
-	bcs .wp3
-	lda #$a9
-	lda #$a9
-	lda #$a5
-	nop
+	sta $ff09
+.wp3	bit $ff09
+	beq .wp3
 	stx $01
-	sty $ff02
-	lda #0
-	sta $ff03
-	ror $ff13
 	stx $ff19
-	dex
-	bpl .wp4
-	rts
-.wp4	ldx #$c2
-	bne .wrhalf
+	sta $ff09
+	bcs .wp5
+.wp4	bit $ff09
+	beq .wp4
+	sta $ff09
+.wp5	rts
+
 	
 .writecbyte
 	sty $a8			; push y

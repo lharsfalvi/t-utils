@@ -2,10 +2,6 @@
 
 A.k.a. "Tape-Utils".
 
-## Warning
-
-As of 2026.06.01, still everything is subject to change.
-
 ## Overview
 T-utils is a set of utilities to assist the production of cassette tape based software releases for the [Commodore 264 series](https://en.wikipedia.org/wiki/Commodore_Plus/4).
 
@@ -269,42 +265,45 @@ What you'll need to know or decide are
 * target file type. (For online sites, .tap should be perfect. For cassette duplicator facilities, you'll likely need to supply a .wav file.)
 * in case of producing physical recordings, the recorder signal chain's input polarity. (Commodore's tape recordings are, unfortunately, not agnostic to polarity. Polarity absolutely needs to match.)
 
-Hint: for most cases, you'll likely want to create a custom wrapper shell script to run tmaster with your parameter list, to keep track of every flags, filenames, target filenames etc. 
+Hint: for most cases, you'll likely want to create a custom wrapper shell script to run tmaster with your parameter list, to keep track of every flags, filenames, target filenames etc.
 
 ## Technical data
 
 ### Custom tape format
 
-T-utils from V0.2.0 and up, by default, uses PLE (Pulse Length Encoding) to record data. PLE is the usual general recording method used by stock Commodore Kernal tape I/O routines and third-party custom loaders. Data bits in PLE are denoted by the length (in time) of subsequent signal pulses.
+T-utils from V0.2.0 on, by default, uses PLE (Pulse Length Encoding) to record data. PLE is the general recording method used by stock Commodore Kernal tape I/O routines (well... sort of...) and third-party custom loaders. Data bits in PLE are denoted by the length (time) of subsequent signal pulses.
 
-Default / nominal timing T for data recording is $70 cycles. The recording strictly employs symmetric pulses. Pulses extend from falling edges to falling edges. (*"Full-wave" tap files can be used to store the recordings.)
+Default / nominal timing T for tload's custom data recording is $70 cycles. The recording strictly employs symmetric pulses. Pulses, similarly to the Kernal's recording format, extend from falling edges to falling edges. (*"Full-wave" tap files can be used to store the recordings.)
 
 Bytes are stored sequentially, MSB first.
 
 
-|Bit	|denoted by           |
-|-------|---------------------|
-|0	|2T * low, 2T * high  |
-|1	|T * low, T * high    |
+|Bit	|denoted by       |
+|-------|-----------------|
+|0	|2T low, 2T high  |
+|1	| T low,  T high  |
 
-As per a roughly even distribution of 0 and 1 bits of compressed data payloads, average nominal data rate is 17734470/20/T/3, a.k.a. 2639bps, a.k.a. ~330 bytes per second.
+As per a roughly even distribution of 0 and 1 bits of compressed data payloads, average nominal data rate is 17734470/20/T/3, a.k.a. **2639bps**, a.k.a. **~330 bytes per second**.
 
-Data is stored in a unified block format (which applies to both bootstrap data blocks and standalone files).
+Data is stored in a unified block format (which applies to bootstrap data blocks and standalone files).
 
 
 |Name         |Data                   |Note                                                   |
 |-------------|-----------------------|-------------------------------------------------------|
 |Lead-in      |$0500 bytes of $ff     |							      |
 |Lead-in end  |$fe, $ee               |Signs the lead-in's end, header's start                |
-|File type    |one byte               |0 --> bootstrap mode turbo block, 1 --> standalone file|
-|Filename     |16 bytes               |absent from bootstraps                                 |
-|Start address|2 bytes                |absent from bootstraps                                 |
-|End address  |2 bytes                |absent from bootstraps                                 |
+|File type    |one byte               |0 --> bootstrap block, 1 --> standalone file           |
+|Filename     |16 bytes               |absent from bootstrap                                  |
+|Start address|2 bytes                |absent from bootstrap                                  |
+|End address  |2 bytes                |absent from bootstrap                                  |
 |Data payload |End-Start bytes of data|                                                       |
-|Checksum     |1 byte                 |EOR of full data payload                               |
+|Checksum     |2 byte                 |Mod-255 Fletcher-16 (end-around-carry variant)         |
 |Lead-out     |$0100 bytes of $ff     |                                                       |
 
-Note: as you can see, there's technically a file header defined and used, yet, file header and data payload are physically located within one continuous data unit.
+Note: as you can see, there's *technically* a file header defined and used. However, file header and data payload are physically within one continuous unit. There's no gap (no lead-out, gap, lead-in) between header and data.
+
+A word of note about the Fletcher-16 checksum. The type was chosen out of it's better error detection properties (generally considered on-par with CRC-8) than that of the xor checksum, while still maintaining modest computational requirements. The one implemented here is the 1-complement addition based variant (the "cheapest" method to implement on 6502), which implies that initial sum1 = sum2 = 255.
+
 
 ### tload
 
@@ -312,15 +311,18 @@ Tload uses Timer 2 and hooks to the CPU IRQ vector to track and decode the tape 
 
 By tricks employed in the IRQ routine code, it's ensured that
 
-* the main program in the background is never blocked for more than $270-some timer cycles (not even when there's no incoming tape signal)
-* pulse length quantization margin is symmetric ±T, a.k.a. nominal ±112 a.k.a. a whole 224 timer cycles.
+* user code running in the background is never blocked for more than $270-some timer cycles (not even when there's no incoming tape signal)
+* pulse length quantization margin is symmetric ±T, a.k.a. nominal ±$70 / ±112 a.k.a. a whole 224 timer cycles.
 * quantization error imposed by the open screen is ± *1* TED badline time
 
-( * On the con-side, the IRQ routine obviously employs a *lot* of busy waiting.)
+(On the con-side, the IRQ routine obviously employs a *lot* of busy waiting.)
 
-* Tload uses the measurement result of the polling loader to set up actual quantization threshold.
-* Tload's version string is embedded into the tload binary blob after the jump table, starting from offset `$15`.
-* There's no separate PAL and NTSC code. Tload in fact doesn't care whether it is running on a PAL or NTSC (or PAL-N) machine. Signal speed variations, in the largest part, are caused by datassette motor speed variations (anyway).
+Also:
+
+* Tload uses the measurement result provided by the polling loader to set up actual quantization threshold.
+* Tload's version string is embedded into the tload binary blob right after the leading jump table, starting from offset `$15`.
+* There's no separate PAL and NTSC code. Tload in fact doesn't care whether it is running on a PAL or NTSC (or PAL-N) machine. (Signal speed variations, in the largest part, are caused by datassette motor speed variations anyway).
+
 
 #### tload state machine states
 
@@ -353,21 +355,19 @@ Additionally, the internal states implemented by the code (as found in `tstat` a
 
 ### tsave
 
-There's nothing really to say here. Tsave also contains code to be able to record a custom Kernal tape format bootstrap, plus, the custom turbo format.
-
-The code also embeds the polling mode turbo loader, which is saved prior to "bootstrap" mode recordings.
+Tsave also contains code to be able to record a custom Kernal tape format bootstrap, plus, the custom turbo format. It also obviously embeds the polling mode turbo loader code.
 
 ### tmaster
 
-The utility was written by [Claude Code](https://claude.com/product/claude-code) in Python, following [specs](tmaster.spec) written by me. Of any technical questions, the specs should be the sources to follow.
+The utility was written by [Claude Code](https://claude.com/product/claude-code) in Python, following [specs](tmaster.spec) written by me. Of any technical questions, these specs should be the source to follow.
 
-[build.sh](build.sh) is used to patch the [tmaster](tmaster) code, for it to always have the latest bootstrap loader binary code snippets and patch address offset list.
+[build.sh](build.sh) is used to patch the [tmaster](tmaster) code, for it to always have the latest bootstrap loader binary code snippets and patch address offset lists.
 
 ## GCR Mode
 
-T-utils had originally employed [GCR](https://en.wikipedia.org/wiki/Group_coded_recording#Commodore) encoding mode to record it's custom format. As it turned out later, the GCR recording failed to survive at least one particular analog duplication facility, so, the method was dropped, and PLE recording mode was implemented to remedy the situation.
+T-utils had originally employed [GCR](https://en.wikipedia.org/wiki/Group_coded_recording#Commodore) encoding to record data. As it turned out later, this recording failed to survive at least one particular analog duplication facility, so, the method was dropped as a result, and PLE recording mode was implemented to remedy the situation.
 
-GCR is fully retained in the code base (see: conditional assembly), but is not built by default, and it's use is discouraged. You can build a GCR mode toolset, if you want, by setting up mode in `tutilscfg.inc` accordingly, and running `build.sh`.
+GCR is fully retained in the code base (see: conditional assembly), but is not built by default. It's use is discouraged. You can still build a GCR mode toolset by setting up mode accordingly in `tutilscfg.inc`, and running `build.sh`.
 
 Nominal bit timing T is 192 single clock cycles in GCR mode, which (in PAL) makes a constant data rate of ~4618 raw bits, a.k.a ~924 GCR nybbles, a.k.a ~462 decoded bytes per second (while employing much lower frequency components than that of PLE). OTOH, data quantization margin is ±T/2 a.k.a. ±96 timer cycles, a bit worse than that of PLE.
 
