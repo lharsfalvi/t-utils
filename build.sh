@@ -14,7 +14,7 @@ tsave.asm
 tload.asm
 bootstrapmod.ple.asm
 bootstrapmod.gcr.asm
-tmaster
+tmaster.py
 tloadtest.asm
 EOF
 
@@ -40,6 +40,7 @@ bootstrap.asm
 bootstrapmod.asm
 bootstrapmod.ple.asm
 bootstrapmod.gcr.asm
+tmaster.py
 tmaster
 EOF
 
@@ -51,6 +52,7 @@ ver.inc
 tsave.prg
 tload.prg
 tloadtest.prg
+tmaster.py
 tmaster
 tloadtest.tap
 EOF
@@ -170,7 +172,7 @@ extractmod () {
   echo "}" >> "$of"
 }
 
-# Patch specified module into tmaster
+# Patch specified module into tmaster.py
 patchmod () {
 
   local file="$1"
@@ -202,6 +204,8 @@ buildtap () {
 
   local file="$1"
   local pf="$BUILDDIR/testfile.prg"
+  local pg="-ple"
+  local pl="-Oy"
   
   if [ ! -e "$pf" ]; then
     echo -n -e '\x00\x10' > "$pf"
@@ -211,7 +215,12 @@ buildtap () {
       -nosalt 2>/dev/null >> "$pf"
   fi
 
-  python3 tmaster "$file.prg" tloadtest -Sy -Oy -nova -run \
+  if grep -qE "^M_GCR\s+EQU\s+0" tutilscfg.inc; then
+    pg="-gcr"
+    pl="-On"
+  fi
+
+  python3 tmaster.py $pg "$file.prg" tloadtest -Sy $pl -nova -run \
     "$pf" payload -s $file.tap
 
 }
@@ -265,9 +274,9 @@ build () {
             ;;
           esac
         ;;
-        *)
-          echo >&2 "Patching $file"
-          patchmod "$file" "$AUXFILES"
+        py)
+          echo >&2 "Patching $filename"
+          patchmod "$filename" "$AUXFILES"
         ;;
 
       esac

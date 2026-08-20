@@ -4,7 +4,7 @@
 ; BE SURE TO _COPY_ THIS FILE to 'tutilscfg.inc' in case you want
 ; to customize _your own_ native build's defaults and features.
 ; HANDS OFF this template file, unless you want to change things
-; also used by tmaster (and you know what you're doing).
+; also used by tmaster.py (and you know what you're doing).
 
 
 ; Mode is either

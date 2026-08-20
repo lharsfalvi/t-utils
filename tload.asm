@@ -41,8 +41,7 @@
 ;00	waiting for play to be pressed
 ;01	searching
 ;02	found, loading
-;03	ready (fail, ST=$ff)
-;04	ready (success, ST=0)
+;03	ready (ST=0 success, ST<$80 pending restart, ST=$80+ fail)
 
 ; bitstor
 ;b0	LSB of previously read raw octet
@@ -50,15 +49,11 @@
 ; name len in		$ab		FNLEN
 ; name ptr in		$af/$b0		FNADR
 
-tload_init
 	IFCONST M_GCR
+tload_init				; GCR specific entry
 	jmp .tload_init
 	ENDIF
-	IFCONST M_PLE
-	rts
-	nop
-	nop
-	ENDIF
+
 tload_start
 	jmp .tload_start
 tload_stop
@@ -238,9 +233,6 @@ tload_bin2t
 	lda #<.tload_fastirq
 	sta $fffe
 	sty ystor
-	IFCONST mod_tloadtest
-	stx $ff19
-	ENDIF
 
 .tlpl	ldy rcsr
 .nsw	=*
@@ -284,10 +276,6 @@ tload_bin2t
 	lda #<.tload_irq
 	sta $fffe
 	ldx xstor
-	IFCONST mod_tloadtest
-	lda #$ee
-	sta $ff19
-	ENDIF
 	inc pstat
         pla
         rti
@@ -458,7 +446,7 @@ tload_bin2t
 ;00	waiting for play button to be pressed
 .s_pressplay
 	lda #$04
-	bit $fd10
+	bit $fd10		; CST Sense
 	bne .s_exit
 	lda #$c0		; motor on
 	sta $01
@@ -645,14 +633,13 @@ tload_bin2t
 	cmp sum2		; sum bytes have to match
 	bne .s_ch2
 	lda sum1
-	eor tcnt
+	eor tcnt		; sum1 from file
 	beq .s_ch0
-.s_ch2	lda #$ff
+.s_ch2	lda #$80
 .s_ch0	sta st			; 0 on success, $ff on load error
 	bmi .incstat		; that's an error
 
 	inc tstat		; success, update states
-	inc tstat_e
 	bne .incstat
 
 ;08	complete (finished with error)
@@ -665,6 +652,7 @@ tload_bin2t
 .s_upr	lda #0			; O.K., start over
 	sta tstat_e
 	sta tstat
+	sta st
 	beq .setstatvect
 
 ;09	complete (finished with success)
