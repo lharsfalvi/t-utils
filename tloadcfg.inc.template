@@ -38,7 +38,7 @@ TLOAD_PTIME	EQU 0
 
 
 ; Variable names and locations
-; These can be as well overridden as needed
+; These can be overridden as needed as well
 
 ;!!! Warning !!!:
 ; If you ever need to relocate tbase (default $e6) and tsym
@@ -46,13 +46,21 @@ TLOAD_PTIME	EQU 0
 ; bootstrap loader (in $e6 and $e7) to the new locations.
 
 ; sourced from standard Kernal variable definitions
-VARTAB	EQU $2d			; 4 bytes
+VARTAB	EQU $2d
 ST	EQU $90
 FNLEN	EQU $ab
-FNADR	EQU $af			; 2 bytes
+FNADR	EQU $af
 CHKSUM	EQU $f5
+LENGTH	EQU $f6
 
-; custom variables
+; custom variables used by tload and tloadtest code
+vartab	EQU VARTAB		; need 4 consecutive bytes
+st	EQU ST
+fnlen	EQU FNLEN
+fnadr	EQU FNADR		; need 2 consecutive bytes
+sum1	EQU CHKSUM
+sum2	EQU LENGTH
+
 tstat_e	EQU $d0			; load state (external)
 tstat	EQU $d1			; load state (internal)
 xstor	EQU $d2			; x register storage
@@ -69,8 +77,8 @@ polar	EQU $d8			; edge polarity that we're finding
 cacc	EQU $d9			; counter accu
 pstat	EQU $da			; processing status
 rcsr	EQU $db			; read cursor
-sytmp	EQU $dc			; Y temp
-tmp	EQU $dd			; sample temp
+ytmp	EQU $dc			; Y temp
+stmp	EQU $dd			; sample temp
 	ENDIF
 
 	IFCONST TLOAD_PTIME

@@ -463,7 +463,7 @@ tload_bin2t
 	lda #$c0		; motor on
 	sta $01
 	lda #0
-	sta ST			; reset ST
+	sta st			; reset ST
 	sta tstat		; reset tstat
 	IFCONST M_GCR
 	sta polar		; start by finding a rising edge
@@ -531,7 +531,7 @@ tload_bin2t
 	clc
 	adc #$81
 	sta tstat		; also raise GCR decode strobe
-	bne .setstatvect
+	jmp .setstatvect
 	ENDIF
 	
 	IFCONST M_PLE
@@ -548,7 +548,7 @@ tload_bin2t
 	cmp #$ee		; gacc in A
 	bne .s_lnf		; $ee found?
 .s_lf	lda #0
-	sta CHKSUM
+	sta sum1		; misusing sum1 for string comp accu
 	jmp .incstat		; found, next state
 .s_lnf	lda #1			; ...not found, go back to seeklead
 	sta tstat
@@ -576,63 +576,79 @@ tload_bin2t
 	bcs .s_r0		; Y>16, past filename
 
 	dey			; compare filename byte
-	cpy FNLEN		; ...if within specified one's len
+	cpy fnlen		; ...if within specified one's len
 	bcs .s_r000
-	eor (FNADR),y		; accumulate finding
-	ora CHKSUM
-	sta CHKSUM
+	eor (fnadr),y		; accumulate finding
+	ora sum1
+	sta sum1
 
 .s_r000 iny
 .s_r0	iny
 	sty tcnt
 	cpy #1+16+4		; block type, fn len, start/end ptr
 	bne .s_exit
-	lda CHKSUM
+	lda sum1
 	bne .s_lnf		; FN didn't match, start over
 	inc tstat_e		; it did, Found!
 	ldy #3
 .s_r2	lda .tbuf+1+16,y	; copy start/end to $2d-$30
-	sta VARTAB,y
+	sta vartab,y
 	dey
 	bpl .s_r2
-	bmi .incstat
+	sty sum1		; init checksum
+	sty sum2
+	iny
+	sty tcnt		; reusing tcnt later on
+	bpl .incstat
 
 ;06	read data
 .s_rdata
 	ldy #0
 	IFNCONST mod_tloadtest	; skip writing to memory if testing
-	sta (VARTAB),y
+	sta (vartab),y
 	ENDIF
-	eor CHKSUM
-	sta CHKSUM
-	inc VARTAB
+	clc			; calc Fletcher-16 checksum
+	adc sum1
+	adc #0
+	sta sum1
+	adc sum2
+	adc #0
+	sta sum2
+	inc vartab
 	bne .s_d1
-	inc VARTAB+1
-.s_d1	lda VARTAB
-	cmp VARTAB+2
+	inc vartab+1
+.s_d1	lda vartab
+	cmp vartab+2
 	beq .s_d2
 	lda #$04		; key check
 	bit $fd10
 	bne .s_d3
 	rts
-.s_d2	lda VARTAB+1
-	cmp VARTAB+3
+.s_d2	lda vartab+1
+	cmp vartab+3
 	beq .incstat		; finished, see checksum
 	rts
 
 .s_d3	inc tstat		; Play released, raise error
-	lda CHKSUM
-	adc #$01
+	bne .s_ch1
 
-;07	read and compare checksum
+;07	read and compare checksum bytes
 .s_checksum
-	ldy #$c8		; stop the datassette
+	bit tcnt
+	bne .s_ch1
+	sta tcnt		; sum{1,2} are never 0
+	rts
+
+.s_ch1	ldy #$c8		; stop the datassette
 	sty $01
 	inc tstat_e		; Ready!
-	eor CHKSUM
-	beq .s_c0
-	lda #$ff
-.s_c0	sta ST			; 0 on success, $ff on load error
+	cmp sum2		; sum bytes have to match
+	bne .s_ch2
+	lda sum1
+	eor tcnt
+	beq .s_ch0
+.s_ch2	lda #$ff
+.s_ch0	sta st			; 0 on success, $ff on load error
 	bmi .incstat		; that's an error
 
 	inc tstat		; success, update states
@@ -644,8 +660,8 @@ tload_bin2t
 	lda #$04		; stay until play is pressed
 	bit $fd10
 	beq .s_complete
-	bit ST
-	bmi .s_complete		; and ST is not cleared
+	bit st
+	bmi .s_complete		; and st is not cleared
 .s_upr	lda #0			; O.K., start over
 	sta tstat_e
 	sta tstat
@@ -929,16 +945,16 @@ tload_bin2t
 	ENDIF
 
 .tload_start
-	stx FNADR
-	sty FNADR+1
+	stx fnadr
+	sty fnadr+1
 	cmp #$10
 	bcc .ts1
 	lda #$10
-.ts1	sta FNLEN
+.ts1	sta fnlen
 	lda #0
 	sta tstat
 	sta tstat_e
-	sta ST
+	sta st
 	IFCONST M_GCR
 	sta polar
 	sta cacc
@@ -1029,11 +1045,11 @@ tload_bin2t
 	bcc .gbe
 
 	sec
-	lda VARTAB+2
-	sbc VARTAB
+	lda vartab+2
+	sbc vartab
 	tax
-	lda VARTAB+3
-	sbc VARTAB+1
+	lda vartab+3
+	sbc vartab+1
 	tay
 	txa
 	adc #$fe

@@ -26,6 +26,9 @@
 ; The parts need to be included / merged from an external asm
 ; file (see tsave.asm and bootstrapmod.asm).
 
+sum1	EQU $f5
+sum2	EQU $f6
+
 	IF BOOT == 1
 
 ; part 1 ($0333)
@@ -70,6 +73,9 @@
 	dec $ff09
 	lda #$ff
 	sta $b6
+	sta sum1		; reset checksums
+	sta sum2
+
 	IFCONST M_GCR
 	sta $d7
 	ENDIF
@@ -83,13 +89,16 @@
 
 	jsr readbyte		; skip type byte
 
-	ldy #0
-	sty $f5
 .l8	jsr readbyte
 	ldy #0
 	sta ($2d),y
-	eor $f5
-	sta $f5
+	clc			; calc Fletcher-16 checksum
+	adc sum1
+	adc #0
+	sta sum1
+	adc sum2
+	adc #0
+	sta sum2
 
 	inc $2d
 	bne .l9
@@ -108,8 +117,10 @@
 	sbc $30
 	bcc .l8
 
-	jsr readbyte
+	jsr readbyte		; sum1
 	pha
+	jsr readbyte		; sum2
+	tax
 
 .o_bresv 	EQU *+1
 	lda #BORDER_RES		; a9 ee
@@ -127,7 +138,9 @@
 	jsr $e381		; irq on
 	ENDIF
 	pla
-	cmp $f5
+	cmp sum1
+	bne .bs4
+	cpx sum2
 	beq .bs3
 .bs4	jmp $a82b		; load error
 .bs3	jsr $8a93		; Basic start load, clr
@@ -135,42 +148,6 @@
 .o_sta	EQU *+1
 	jmp $8703		; 03 87 / cd 8b / yy xx
 
-	IFCONST M_GCR
-gcrtobin
-;	DC.B $ff		; 0-8, aren't valid GCR nybbles
-;	DC.B $ff		; so we get rid of them
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-;	DC.B $ff
-	DC.B $08		; $09 %01001
-	DC.B $00		; $0a %01010
-	DC.B $01		; $0b %01011
-	DC.B $ff
-	DC.B $0c		; $0d %01101
-	DC.B $04		; $0e %01110
-	DC.B $05		; $0f %01111
-	DC.B $ff
-	DC.B $ff
-	DC.B $02		; $12 %10010
-	DC.B $03		; $13 %10011
-	DC.B $ff
-	DC.B $0f		; $15 %10101
-	DC.B $06		; $16 %10110
-	DC.B $07		; $17 %10111
-	DC.B $ff
-	DC.B $09		; $19 %11001
-	DC.B $0a		; $1a %11010
-	DC.B $0b		; $1b %11011
-	DC.B $ff
-	DC.B $0d		; $1d %11101
-	DC.B $0e		; $1e %11110
-;	DC.B $ff
-	ENDIF
-	
 	DS B1E-8-*, 0		; zero padding
 
 	DC.W B3S		; part 3 start / len
@@ -382,6 +359,41 @@ readbyte
 	tay
 	lda gcrtobin-9,y
 	rts
+
+gcrtobin
+;	DC.B $ff		; 0-8, aren't valid GCR nybbles
+;	DC.B $ff		; so we get rid of them
+;	DC.B $ff
+;	DC.B $ff
+;	DC.B $ff
+;	DC.B $ff
+;	DC.B $ff
+;	DC.B $ff
+;	DC.B $ff
+	DC.B $08		; $09 %01001
+	DC.B $00		; $0a %01010
+	DC.B $01		; $0b %01011
+	DC.B $ff
+	DC.B $0c		; $0d %01101
+	DC.B $04		; $0e %01110
+	DC.B $05		; $0f %01111
+	DC.B $ff
+	DC.B $ff
+	DC.B $02		; $12 %10010
+	DC.B $03		; $13 %10011
+	DC.B $ff
+	DC.B $0f		; $15 %10101
+	DC.B $06		; $16 %10110
+	DC.B $07		; $17 %10111
+	DC.B $ff
+	DC.B $09		; $19 %11001
+	DC.B $0a		; $1a %11010
+	DC.B $0b		; $1b %11011
+	DC.B $ff
+	DC.B $0d		; $1d %11101
+	DC.B $0e		; $1e %11110
+;	DC.B $ff
+
 	ENDIF
 
 	IFCONST M_PLE		; PLE mode bit / byte read

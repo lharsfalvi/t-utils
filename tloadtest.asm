@@ -320,11 +320,11 @@ rstart	jsr CINT
 	cmp #3
 	bcc .rloop
 
-	lda ST
+	lda st
 	bpl .succ
 	inc fail
 	lda #0
-	sta ST
+	sta st
 	beq .rloop
 
 .succ	inc succ
