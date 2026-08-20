@@ -3,7 +3,7 @@
 	SEG text
 	ORG $1001
 
-TLOAD_BSS 	SET $1800	; we explicitly set tload's BSS
+TLOAD_BSS 	SET $1900	; we explicitly set tload's BSS here
 
 CINT	EQU $ff81
 PRIMM	EQU $ff4f
@@ -207,8 +207,7 @@ TP	EQM $ff & ((.. + ((..&$60)==$40?$20)) + ((..&$60)==$60?$e0))
 .extmsg	DV TS "Press play on tape      "
 	DV TS "Searching               "
 	DV TS "Loading                 "
-	DV TS "Finished with error     "
-	DV TS "Finished with success   "
+	DV TS "Finished                "
 
 ;	       123456789012345678901234		24
 .intmsg DV TS "Press play on tape      "
@@ -241,7 +240,7 @@ rstart	jsr CINT
 	jsr PRIMM
 	DV TP "Timebase: $", $0d
 	IFCONST M_GCR
-	DV TP "Signal asymmetry: $", $0d
+	DV TP "Signal asymmetry: $", $0d, $0d
 	ENDIF
 	IFCONST M_PLE
 	DV TP "Time threshold: $", $0d, $0d
@@ -279,7 +278,11 @@ rstart	jsr CINT
 
 .r0	jsr refresh
 
-.rloop0	jsr tload_init
+.rloop0
+	IFCONST M_GCR
+	jsr tload_init
+	ENDIF
+
 	lda #.fname-.fnam
 	ldx #<.fnam
 	ldy #>.fnam
@@ -323,7 +326,7 @@ rstart	jsr CINT
 	lda st
 	bpl .succ
 	inc fail
-	lda #0
+	lda #1
 	sta st
 	beq .rloop
 
